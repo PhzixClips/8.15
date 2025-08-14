@@ -28,6 +28,9 @@ class TabData:
     # Optional fields for library tab
     container: Optional[tk.Frame] = None
     folder_filter_combo: Optional[ttk.Combobox] = None
+    quick_search_entry: Optional[tk.Entry] = None
+    tag_filter_combo: Optional[ttk.Combobox] = None
+    sort_button: Optional[ttk.Button] = None
 
 
 def _format_percentage(value: Optional[float], decimals: int = 1) -> str:
@@ -165,16 +168,28 @@ from data.winners_manager import WinnersManager
 class TabManager:
     """Manages multiple search tabs"""
 
-    def __init__(self, parent: tk.Widget, tree_container: tk.Widget, winners_manager: WinnersManager, on_tab_switch: callable = None):
+    def __init__(self, parent: tk.Widget, tree_container: tk.Widget, winners_manager: WinnersManager, on_tab_switch: callable = None, on_manage_folders: callable = None, on_quick_delete: callable = None, on_open_notes: callable = None, on_selection_change: callable = None):
         self.parent = parent
         self.tree_container = tree_container
         self.winners_manager = winners_manager
         self.on_tab_switch = on_tab_switch
+        self.on_manage_folders = on_manage_folders
+        self.on_quick_delete = on_quick_delete
+        self.on_open_notes = on_open_notes
+        self.on_selection_change = on_selection_change
         self.tabs: Dict[str, TabData] = {}
         self.active_tab_id: Optional[str] = None
         self.tab_counter = 0
         self.tooltip = Tooltip()
         self.winners_tab_id: Optional[str] = None
+        self.sort_options = [
+            ('Score', True),
+            ('VPH', True),
+            ('Date Saved', True),
+            ('Duration', True),
+            ('Duration', False)
+        ]
+        self.current_sort_index = 0
 
         self._create_tab_container()
 
@@ -265,6 +280,29 @@ class TabManager:
         folder_filter_combo = ttk.Combobox(filter_frame, textvariable=folder_var, state='readonly', width=30)
         folder_filter_combo.pack(side='left', padx=5)
 
+        tk.Label(filter_frame, text="🔍 Quick Search:", bg=COLORS.get('bg_primary'), fg=COLORS.get('fg_primary')).pack(side='left', padx=(10, 0))
+        quick_search_entry = tk.Entry(filter_frame, bg=COLORS.get('bg_secondary'), fg=COLORS.get('fg_primary'), width=30)
+        quick_search_entry.pack(side='left', padx=5)
+
+        tk.Label(filter_frame, text="🏷️ Tag Filter:", bg=COLORS.get('bg_primary'), fg=COLORS.get('fg_primary')).pack(side='left', padx=(10, 0))
+        tag_filter_combo = ttk.Combobox(filter_frame, state='readonly', width=20)
+        tag_filter_combo.pack(side='left', padx=5)
+
+        sort_button = ttk.Button(filter_frame, text="Sort by: Score ▼", width=20, command=self._cycle_sort)
+        sort_button.pack(side='left', padx=5)
+
+        if self.on_manage_folders:
+            manage_folders_button = ttk.Button(filter_frame, text="📂 Manage", width=12, command=self.on_manage_folders)
+            manage_folders_button.pack(side='right', padx=5)
+
+        if self.on_quick_delete:
+            quick_delete_button = ttk.Button(filter_frame, text="🗑️ Delete", width=12, command=self.on_quick_delete)
+            quick_delete_button.pack(side='right', padx=5)
+
+        if self.on_open_notes:
+            notes_button = ttk.Button(filter_frame, text="📝 Notes", width=12, command=self.on_open_notes)
+            notes_button.pack(side='right', padx=5)
+
         tree = self._create_winners_treeview(library_container)
         tree.pack(side='bottom', fill='both', expand=True)
 
@@ -274,7 +312,10 @@ class TabManager:
             tab_id=tab_id, frame=tab_frame, label=tab_label, status_label=None,
             close_button=close_button, tree=tree, search_term="Library",
             results=[], status_text='idle', tooltip_data={}, is_winners_tab=True,
-            container=library_container, folder_filter_combo=folder_filter_combo
+            container=library_container, folder_filter_combo=folder_filter_combo,
+            quick_search_entry=quick_search_entry,
+            tag_filter_combo=tag_filter_combo,
+            sort_button=sort_button
         )
 
         self.tabs[tab_id] = tab_data
@@ -282,7 +323,9 @@ class TabManager:
         self._bind_tree_tooltip(tree, tab_id)
         tab_frame.pack(side='left', fill='y', padx=2, pady=2)
 
-        folder_filter_combo.bind("<<ComboboxSelected>>", lambda event: self.filter_library_by_folder())
+        folder_filter_combo.bind("<<ComboboxSelected>>", lambda e: self._update_library_view())
+        quick_search_entry.bind("<KeyRelease>", lambda e: self._update_library_view())
+        tag_filter_combo.bind("<<ComboboxSelected>>", lambda e: self._update_library_view())
 
         return tab_id
 
@@ -349,27 +392,17 @@ class TabManager:
                 if col != column:
                     sort_states[col] = False
 
-            if column == 'L/V Ratio':
-                items = [(_percent_to_float(tree.set(iid, column)), iid) for iid in tree.get_children("")]
-            elif column == 'Duration':
-                items = [(_duration_to_seconds(tree.set(iid, column)), iid) for iid in tree.get_children("")]
-            elif column == 'Age':
-                items = [(_age_to_seconds(tree.set(iid, column)), iid) for iid in tree.get_children("")]
-            else:
-                items = None
-
-            if items is not None:
-                items.sort(key=lambda x: x[0], reverse=new_state)
-                for idx, (_, iid) in enumerate(items):
-                    tree.move(iid, "", idx)
-            else:
-                sort_treeview_column(tree, column, new_state)
+            self._sort_treeview(tree, column, new_state)
 
         for col in display_columns:
             tree.heading(col, text=col, command=lambda c=col: toggle_sort(c))
             tree.column(col, anchor='center', width=column_widths[col])
 
         tree.column('video_id', width=0, stretch=False)
+
+        if self.on_selection_change:
+            tree.bind('<<TreeviewSelect>>', self.on_selection_change)
+
         return tree
 
     def _create_winners_treeview(self, parent_container: tk.Widget) -> ttk.Treeview:
@@ -393,25 +426,17 @@ class TabManager:
                 if col != column:
                     sort_states[col] = False
 
-            if column == 'L/V Ratio':
-                items = [(_percent_to_float(tree.set(iid, column)), iid) for iid in tree.get_children("")]
-            elif column == 'Duration':
-                items = [(_duration_to_seconds(tree.set(iid, column)), iid) for iid in tree.get_children("")]
-            else:
-                items = None
-
-            if items is not None:
-                items.sort(key=lambda x: x[0], reverse=new_state)
-                for idx, (_, iid) in enumerate(items):
-                    tree.move(iid, "", idx)
-            else:
-                sort_treeview_column(tree, column, new_state)
+            self._sort_treeview(tree, column, new_state)
 
         for col in display_columns:
             tree.heading(col, text=col, command=lambda c=col: toggle_sort(c))
             tree.column(col, anchor='center', width=column_widths[col])
 
         tree.column('video_id', width=0, stretch=False)
+
+        if self.on_selection_change:
+            tree.bind('<<TreeviewSelect>>', self.on_selection_change)
+
         return tree
 
     def _bind_tab_events(self, tab_frame: tk.Frame, tab_label: tk.Label,
@@ -521,6 +546,7 @@ class TabManager:
         if active_tab.is_winners_tab and active_tab.container:
             active_tab.container.place(in_=self.tree_container, x=0, y=0, relwidth=1, relheight=1)
             self.update_folder_filter()
+            self.update_tag_filter()
         else:
             active_tab.tree.place(in_=self.tree_container, x=0, y=0, relwidth=1, relheight=1)
 
@@ -682,6 +708,32 @@ class TabManager:
                 return winner.to_dict()
         return None
 
+    def get_selected_items(self) -> List[Dict]:
+        tab_id = self.active_tab_id
+        if not tab_id or tab_id not in self.tabs:
+            return []
+
+        tab_data = self.tabs[tab_id]
+        selection = tab_data.tree.selection()
+        if not selection:
+            return []
+
+        selected_videos = []
+        for item_id in selection:
+            video_id = tab_data.tree.set(item_id, 'video_id')
+
+            # Find the video data. It could be in the results list or need to be fetched from winners_manager
+            video_data = next((v for v in tab_data.results if v.get('video_id') == video_id), None)
+            if not video_data and tab_data.is_winners_tab:
+                 winner = self.winners_manager.get_winner_by_id(video_id)
+                 if winner:
+                     video_data = winner.to_dict()
+
+            if video_data:
+                selected_videos.append(video_data)
+
+        return selected_videos
+
     def update_folder_filter(self):
         """Updates the folder filter dropdown with the current folders."""
         winners_tab = self.get_winners_tab()
@@ -693,20 +745,92 @@ class TabManager:
         if not winners_tab.folder_filter_combo.get():
             winners_tab.folder_filter_combo.set("All")
 
-    def filter_library_by_folder(self):
-        """Filters the library treeview based on the dropdown selection."""
+    def update_tag_filter(self):
+        """Updates the tag filter dropdown with all unique tags."""
         winners_tab = self.get_winners_tab()
-        if not winners_tab or not winners_tab.folder_filter_combo:
+        if not winners_tab or not winners_tab.tag_filter_combo:
+            return
+
+        all_tags = ["All"] + self.winners_manager.get_all_tags()
+        winners_tab.tag_filter_combo['values'] = all_tags
+        if not winners_tab.tag_filter_combo.get():
+            winners_tab.tag_filter_combo.set("All")
+
+    def _sort_treeview(self, tree, column, reverse):
+        if column == 'L/V Ratio':
+            items = [(_percent_to_float(tree.set(iid, column)), iid) for iid in tree.get_children("")]
+        elif column == 'Duration':
+            items = [(_duration_to_seconds(tree.set(iid, column)), iid) for iid in tree.get_children("")]
+        elif column == 'Age':
+            items = [(_age_to_seconds(tree.set(iid, column)), iid) for iid in tree.get_children("")]
+        else:
+            try:
+                # Attempt to sort numerically
+                items = [(float(tree.set(item, column)), item) for item in tree.get_children('')]
+            except (ValueError, TypeError):
+                # Fallback to string-based sorting
+                items = [(tree.set(item, column), item) for item in tree.get_children('')]
+
+        items.sort(key=lambda x: x[0], reverse=reverse)
+        for idx, (_, iid) in enumerate(items):
+            tree.move(iid, "", idx)
+
+    def _update_library_view(self):
+        """Filters and updates the library treeview based on folder and search filters."""
+        winners_tab = self.get_winners_tab()
+        if not winners_tab or not winners_tab.folder_filter_combo or not winners_tab.quick_search_entry or not winners_tab.tag_filter_combo:
             return
 
         selected_folder = winners_tab.folder_filter_combo.get()
+        search_query = winners_tab.quick_search_entry.get().lower().strip()
+        selected_tag = winners_tab.tag_filter_combo.get()
 
         self.clear_tab_results(self.winners_tab_id)
 
+        # 1. Filter by folder first
         if selected_folder == "All":
-            winners = self.winners_manager.winners
+            winners_to_filter = self.winners_manager.winners
         else:
-            winners = self.winners_manager.get_winners_by_folder(selected_folder)
+            winners_to_filter = self.winners_manager.get_winners_by_folder(selected_folder)
 
-        for winner in winners:
+        # 2. Then, filter by tag
+        if selected_tag and selected_tag != "All":
+            winners_to_filter = [w for w in winners_to_filter if selected_tag in w.tags]
+
+        # 3. Then, filter by search query
+        if search_query:
+            filtered_winners = []
+            for winner in winners_to_filter:
+                # Use display_title, fallback to title. Ensure it's a string.
+                title_to_check = (winner.display_title or winner.title or "").lower()
+                notes_to_check = (winner.notes or "").lower()
+                tags_to_check = [tag.lower() for tag in (winner.tags or [])]
+
+                if (search_query in title_to_check or
+                        search_query in notes_to_check or
+                        any(search_query in tag for tag in tags_to_check)):
+                    filtered_winners.append(winner)
+        else:
+            filtered_winners = winners_to_filter
+
+        for winner in filtered_winners:
             self.add_winner_to_tab(winner.to_dict())
+
+        # Apply current sort
+        column, reverse = self.sort_options[self.current_sort_index]
+        self._sort_treeview(winners_tab.tree, column, reverse)
+
+    def _cycle_sort(self):
+        winners_tab = self.get_winners_tab()
+        if not winners_tab or not winners_tab.sort_button:
+            return
+
+        self.current_sort_index = (self.current_sort_index + 1) % len(self.sort_options)
+        column, reverse = self.sort_options[self.current_sort_index]
+
+        # Update button text
+        direction_arrow = '▼' if reverse else '▲'
+        winners_tab.sort_button.config(text=f"Sort by: {column} {direction_arrow}")
+
+        # Apply sort
+        self._sort_treeview(winners_tab.tree, column, reverse)

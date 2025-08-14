@@ -216,6 +216,15 @@ class WinnersManager:
         """Get all folder names"""
         return self.folders.copy()
 
+    def get_all_tags(self) -> List[str]:
+        """Get all unique tags from all winners."""
+        all_tags = set()
+        for winner in self.winners:
+            if winner.tags:
+                for tag in winner.tags:
+                    all_tags.add(tag)
+        return sorted(list(all_tags))
+
     def get_winner_count(self) -> int:
         """Get total number of winners"""
         return len(self.winners)

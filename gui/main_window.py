@@ -26,6 +26,7 @@ from gui.tab_manager import TabManager
 from gui.components import (
     ProgressDialog, CaptionDialog, TranscriptDialog, TimerWidget
 )
+from gui.folder_manager_dialog import FolderManagerDialog
 from utils.logging import Logger
 
 # Winners (fallback if module not present)
@@ -87,6 +88,10 @@ class MainWindow:
         self.status_job = None
         self.url_frame = None
         self.search_frame = None
+        self.notes_panel = None
+        self.notes_text = None
+        self.notes_save_button = None
+        self.currently_editing_video_id = None
 
 
     # -----------------------------
@@ -113,6 +118,7 @@ class MainWindow:
         self._create_tab_system()
         self._create_action_buttons()
         self._create_status_bar()
+        self._create_notes_panel()
 
         # Apply settings (styles, fonts, colors)
         self._apply_live_settings()
@@ -302,7 +308,7 @@ class MainWindow:
     def _create_tab_system(self):
         self.tree_container = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
         self.tree_container.pack(fill='both', expand=True, padx=8, pady=8)
-        self.tab_manager = TabManager(self.root, self.tree_container, self.winners_manager, on_tab_switch=self._on_tab_switch)
+        self.tab_manager = TabManager(self.root, self.tree_container, self.winners_manager, on_tab_switch=self._on_tab_switch, on_manage_folders=self._open_folder_manager, on_quick_delete=self._quick_delete_selected, on_open_notes=self._open_notes_editor, on_selection_change=self._update_notes_panel)
 
     def _on_tab_switch(self, tab_data: Optional[dict]):
         """Callback for when the active tab changes."""
@@ -395,6 +401,110 @@ class MainWindow:
             button_text = f"Save to {last_folder} ▾"
             button.config(text=button_text)
 
+    def _open_folder_manager(self):
+        dialog = FolderManagerDialog(self.root, self.winners_manager)
+        self.root.wait_window(dialog)
+        self.tab_manager.update_folder_filter()
+        self.tab_manager.update_tag_filter()
+        self.tab_manager._update_library_view()
+
+    def _quick_delete_selected(self):
+        selected_items = self.tab_manager.get_selected_items()
+        if not selected_items:
+            messagebox.showinfo("Delete", "Please select one or more items to delete.", parent=self.root)
+            return
+
+        item_count = len(selected_items)
+        video_titles = "\n".join([f"- {item.get('title', 'Untitled')}" for item in selected_items[:5]])
+        if item_count > 5:
+            video_titles += "\n- ..."
+
+        if not messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete {item_count} item(s)?\n\n{video_titles}", parent=self.root):
+            return
+
+        deleted_videos_data = []
+        for item in selected_items:
+            video_id = item.get('video_id')
+            if video_id:
+                winner = self.winners_manager.get_winner_by_id(video_id)
+                if winner:
+                    deleted_videos_data.append(winner.to_dict())
+                    self.winners_manager.remove_winner(video_id)
+
+        def undo_action():
+            for video_data in deleted_videos_data:
+                self.winners_manager.add_winner(video_data, video_data.get('folder', 'Default'), notes=video_data.get('notes', ''))
+            self.tab_manager._update_library_view()
+            self._set_status_message(f"Restored {len(deleted_videos_data)} item(s).", None)
+
+        self.tab_manager._update_library_view()
+        self._set_status_message(f"Deleted {len(deleted_videos_data)} item(s).", undo_action)
+
+    def _create_notes_panel(self):
+        self.notes_panel = tk.Frame(self.root, bg=COLORS.get('bg_secondary'), width=250)
+        # Don't pack it yet, it starts hidden
+
+        notes_header = tk.Frame(self.notes_panel, bg=COLORS.get('bg_secondary'))
+        notes_header.pack(fill='x', pady=5, padx=5)
+
+        tk.Label(notes_header, text="📝 Notes", bg=COLORS.get('bg_secondary'), fg=COLORS.get('fg_accent')).pack(side='left')
+
+        close_button = ttk.Button(notes_header, text="×", command=lambda: self._toggle_notes_panel(False))
+        close_button.pack(side='right')
+
+        self.notes_text = tk.Text(self.notes_panel, wrap='word', height=10, bg=COLORS.get('bg_primary'), fg=COLORS.get('fg_primary'), insertbackground=COLORS.get('fg_primary'))
+        self.notes_text.pack(fill='both', expand=True, padx=5, pady=5)
+
+        self.notes_save_button = ttk.Button(self.notes_panel, text="Save Notes", command=self._save_notes, state='disabled')
+        self.notes_save_button.pack(pady=5, padx=5)
+
+    def _toggle_notes_panel(self, show: bool):
+        if show and not self.notes_panel.winfo_ismapped():
+            self.notes_panel.pack(side='right', fill='y', padx=(0, 8), pady=8)
+            self._update_notes_panel()
+        elif not show and self.notes_panel.winfo_ismapped():
+            self.notes_panel.pack_forget()
+
+    def _update_notes_panel(self, event=None):
+        if not self.notes_panel.winfo_ismapped():
+            return
+
+        selected_item = self.tab_manager.get_selected_video()
+
+        if selected_item:
+            self.currently_editing_video_id = selected_item.get('video_id')
+            notes = selected_item.get('notes', '')
+            self.notes_text.delete('1.0', tk.END)
+            self.notes_text.insert('1.0', notes)
+            self.notes_save_button.config(state='normal')
+        else:
+            self.currently_editing_video_id = None
+            self.notes_text.delete('1.0', tk.END)
+            self.notes_save_button.config(state='disabled')
+
+    def _save_notes(self):
+        if not self.currently_editing_video_id:
+            return
+
+        new_notes = self.notes_text.get('1.0', tk.END).strip()
+
+        winner = self.winners_manager.get_winner_by_id(self.currently_editing_video_id)
+        if winner:
+            winner_data = winner.to_dict()
+            winner_data['notes'] = new_notes
+            if self.winners_manager.update_winner(self.currently_editing_video_id, winner_data):
+                self._set_status_message(f"Notes for '{winner.display_title[:20]}...' saved.", None)
+                # Refresh the view to reflect changes if notes were part of a search
+                self.tab_manager._update_library_view()
+            else:
+                messagebox.showerror("Error", "Failed to save notes.", parent=self.root)
+        else:
+            messagebox.showerror("Error", "Could not find the item to update.", parent=self.root)
+
+    def _open_notes_editor(self):
+        # Toggle the visibility of the panel
+        self._toggle_notes_panel(not self.notes_panel.winfo_ismapped())
+
     # --- The rest of the file remains the same ---
     def _initialize_winners_tab(self):
         try:
@@ -419,6 +529,7 @@ class MainWindow:
             for winner in self.winners_manager.winners:
                 self.tab_manager.add_winner_to_tab(winner.to_dict())
             self.tab_manager.update_folder_filter()
+            self.tab_manager.update_tag_filter()
         except Exception as e:
             self.logger.error(f"Error loading winners to tab: {e}")
 

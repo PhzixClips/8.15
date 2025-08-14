@@ -76,10 +76,11 @@ class WinnerVideo:
 
 from .transcript_manager import TranscriptManager
 
+
 class WinnersManager:
     """Manages winner videos and folders"""
 
-    def __init__(self, winners_file: str = 'winners.json', transcript_manager: Optional[TranscriptManager] = None):
+    def __init__(self, winners_file: str = 'winners.json', transcript_manager: "Optional[TranscriptManager]" = None):
         self.winners_file = winners_file
         self.winners: List[WinnerVideo] = []
         self.folders: List[str] = ["Default"]

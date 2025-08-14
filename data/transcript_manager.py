@@ -3,13 +3,15 @@ import os
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 
-from config import TRANSCRIPTS_PATH
-
 class TranscriptManager:
     """Manages transcript files on disk."""
 
-    def __init__(self, base_path: Path = TRANSCRIPTS_PATH):
-        self.base_path = base_path
+    def __init__(self, base_path: Optional[Path] = None):
+        if base_path is None:
+            from config import TRANSCRIPTS_PATH
+            self.base_path = TRANSCRIPTS_PATH
+        else:
+            self.base_path = base_path
         self.base_path.mkdir(parents=True, exist_ok=True)
 
     def get_transcript_path(self, library_id: str, extension: str = "txt") -> Path:

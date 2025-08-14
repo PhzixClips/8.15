@@ -184,8 +184,8 @@ class MediaProcessor:
             return None
 
     def transcribe_audio(self, audio_path: Path,
-                        progress_callback: Optional[Callable] = None) -> Optional[str]:
-        """Transcribe audio using Whisper"""
+                        progress_callback: Optional[Callable] = None) -> Optional[dict]:
+        """Transcribe audio using Whisper and return the result object."""
         try:
             if progress_callback:
                 progress_callback("Loading Whisper model...")
@@ -200,7 +200,7 @@ class MediaProcessor:
             result = self.whisper_model.transcribe(str(audio_path))
 
             log_upgrade(f"Successfully transcribed audio from {audio_path}")
-            return result["text"]
+            return result
 
         except Exception as e:
             log_upgrade(f"Transcription error: {e}")

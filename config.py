@@ -20,6 +20,7 @@ AUDIO_FILE_NAME = "audio.wav"
 
 LOG_PATH = Path(settings_manager.get("log_path", "."))
 AUDIO_CLIPS_PATH = Path(settings_manager.get("audio_clips_path", "."))
+TRANSCRIPTS_PATH = Path(settings_manager.get("transcripts_path", "transcripts"))
 CLIPHUSTLE_BASE_PATH = Path(settings_manager.get("cliphustle_base_path", "."))
 
 # -----------------------------

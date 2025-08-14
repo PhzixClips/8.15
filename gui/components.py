@@ -816,11 +816,12 @@ class PromptBuilderPanel(tk.Frame):
 class TranscriptDialog:
     """Dialog for displaying video transcripts (with Prompt Builder side-panel)."""
 
-    def __init__(self, parent: tk.Tk, title: str, video_id: str, transcript: str) -> None:
+    def __init__(self, parent: tk.Tk, title: str, video_id: str, transcript: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         self.parent = parent
         self.title = title
         self.video_id = video_id
         self.transcript = transcript
+        self.metadata = metadata or {}
 
         self.window = tk.Toplevel(parent)
         try:
@@ -892,6 +893,8 @@ class TranscriptDialog:
         builder_container.grid(row=0, column=1, sticky='ns')
         builder_container.grid_propagate(False)
 
+        self._create_metadata_panel(builder_container)
+
         try:
             self.builder = PromptBuilderPanel(builder_container, transcript_provider=_get_transcript)
             self.builder.pack(fill="both", expand=True)
@@ -900,6 +903,45 @@ class TranscriptDialog:
                            bg=COLORS.get('bg_primary', PALETTE["bg"]),
                            fg=PALETTE["warning"], justify="left")
             err.pack(fill="both", expand=True, padx=8, pady=8)
+
+    def _create_metadata_panel(self, parent: tk.Widget) -> None:
+        """Creates the metadata panel based on the metadata provided."""
+        if not self.metadata:
+            return
+
+        metadata_frame = tk.Frame(parent, bg=PALETTE["card"], bd=1, relief="solid")
+        metadata_frame.pack(fill="x", pady=(0, 10), padx=8)
+
+        is_multi_select = self.metadata.get("is_multi_select", False)
+
+        if is_multi_select:
+            title = f"Context: {self.metadata.get('count', 0)} transcripts combined"
+            tk.Label(metadata_frame, text=title, font=("Segoe UI", 10, "bold"), bg=PALETTE["card"], fg=PALETTE["text"]).pack(anchor="w", padx=5, pady=5)
+
+            items_text = tk.Text(metadata_frame, height=5, bg=PALETTE["card"], fg=PALETTE["text"], wrap="word", font=("Segoe UI", 8))
+            items_text.pack(fill="x", padx=5, pady=5)
+            for item in self.metadata.get("items", []):
+                items_text.insert(tk.END, f"- {item}\n")
+            items_text.config(state="disabled")
+
+            info_frame = tk.Frame(metadata_frame, bg=PALETTE["card"])
+            info_frame.pack(fill="x", padx=5, pady=5)
+            tk.Label(info_frame, text=f"Tokens: ~{self.metadata.get('total_tokens', 0)}", font=("Segoe UI", 9), bg=PALETTE["card"], fg=PALETTE["muted"]).pack(side="left", padx=5)
+            tk.Label(info_frame, text=f"Duration: {self.metadata.get('total_duration', '0:00')}", font=("Segoe UI", 9), bg=PALETTE["card"], fg=PALETTE["muted"]).pack(side="left", padx=5)
+            tk.Label(info_frame, text=f"Views: {self.metadata.get('total_views', '0')}", font=("Segoe UI", 9), bg=PALETTE["card"], fg=PALETTE["muted"]).pack(side="left", padx=5)
+
+        else:
+            title = f"Context: 1 transcript"
+            tk.Label(metadata_frame, text=title, font=("Segoe UI", 10, "bold"), bg=PALETTE["card"], fg=PALETTE["text"]).pack(anchor="w", padx=5, pady=5)
+
+            for key, value in self.metadata.items():
+                if key in ["is_multi_select", "count"]:
+                    continue
+
+                row = tk.Frame(metadata_frame, bg=PALETTE["card"])
+                row.pack(fill="x", padx=5, pady=2)
+                tk.Label(row, text=f"{key}:", font=("Segoe UI", 9, "bold"), bg=PALETTE["card"], fg=PALETTE["muted"]).pack(side="left")
+                tk.Label(row, text=str(value), font=("Segoe UI", 9), bg=PALETTE["card"], fg=PALETTE["text"], wraplength=250, justify="left").pack(side="left", padx=5)
 
         # Bottom buttons (for transcript)
         buttons = tk.Frame(self.window, bg=COLORS.get('bg_primary', PALETTE["bg"]))

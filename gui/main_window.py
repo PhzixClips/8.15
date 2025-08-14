@@ -26,8 +26,10 @@ from gui.tab_manager import TabManager
 from gui.components import (
     ProgressDialog, CaptionDialog, TranscriptDialog, TimerWidget
 )
+from gui.tab_manager import _duration_to_seconds
 from utils.logging import Logger
 
+from data.transcript_manager import TranscriptManager
 # Winners (fallback if module not present)
 try:
     from data.winners_manager import WinnersManager
@@ -52,7 +54,8 @@ class MainWindow:
 
         # Initialize components
         self.search_engine = SearchEngine()
-        self.winners_manager = WinnersManager()
+        self.transcript_manager = TranscriptManager()
+        self.winners_manager = WinnersManager(transcript_manager=self.transcript_manager)
         self.media_processor = MediaProcessor()
 
         # UI components
@@ -302,7 +305,7 @@ class MainWindow:
     def _create_tab_system(self):
         self.tree_container = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
         self.tree_container.pack(fill='both', expand=True, padx=8, pady=8)
-        self.tab_manager = TabManager(self.root, self.tree_container, self.winners_manager, on_tab_switch=self._on_tab_switch)
+        self.tab_manager = TabManager(self, self.tree_container, self.winners_manager, on_tab_switch=self._on_tab_switch)
 
     def _on_tab_switch(self, tab_data: Optional[dict]):
         """Callback for when the active tab changes."""
@@ -492,7 +495,7 @@ class MainWindow:
                     self._set_status_message(f"Saved to {dialog_result['folder']} as {saved_as}", undo_action)
 
                 if dialog_result.get('download_transcript'):
-                    self._download_transcript_async(
+                    self._generate_transcript_async(
                         video_id,
                         callback=lambda: self._open_prompt_builder(video_id, dialog_result['display_title']) if dialog_result.get('open_prompt_builder') else None
                     )
@@ -996,9 +999,10 @@ class MainWindow:
             audio_path = self.media_processor.download_audio_only(video_id, url, AUDIO_CLIPS_PATH)
             if not audio_path:
                 progress.close(); messagebox.showerror('Error', 'Failed to download audio'); return
-            transcript = self.media_processor.transcribe_audio(audio_path, progress_callback)
+            transcript_result = self.media_processor.transcribe_audio(audio_path, progress_callback)
             progress.close()
-            if transcript:
+            if transcript_result:
+                transcript = transcript_result['text']
                 clean_title = title.replace('🟢 ','').replace('🔴 ','').strip()
                 TranscriptDialog(self.root, clean_title, video_id, transcript)
                 try:
@@ -1064,40 +1068,201 @@ class MainWindow:
         except Exception:
             messagebox.showerror('Timer Error', 'Invalid time format. Use HH:MM (24-hour format).')
 
-    def _download_transcript_async(self, video_id: str, callback: Optional[callable] = None):
-        """Downloads a transcript in a background thread."""
-        self.logger.info(f"Starting async transcript download for {video_id}")
+    def _generate_transcript(self):
+        """Generate transcript for the selected video."""
+        video = self.tab_manager.get_selected_video()
+        if not video:
+            messagebox.showinfo('Generate Transcript', 'Please select a video first.')
+            return
+
+        video_id = video.get('video_id')
+        if not video_id:
+            messagebox.showerror('Error', 'Video ID not found.')
+            return
+
+        # Show a confirmation dialog
+        if messagebox.askyesno('Generate Transcript', f"Generate transcript for '{video.get('title')}'?\nThis will use the Whisper 'tiny' model and may take a few minutes."):
+            self._generate_transcript_async(video_id)
+
+    def _generate_transcript_async(self, video_id: str, callback: Optional[callable] = None):
+        """Generates and saves a transcript in a background thread."""
+        self.logger.info(f"Starting async transcript generation for {video_id}")
+        self.tab_manager.update_winner_row_status(video_id, "Queued")
 
         def _task():
             try:
+                self.root.after(0, lambda: self.tab_manager.update_winner_row_status(video_id, "Transcribing..."))
+
                 url = f'https://www.youtube.com/watch?v={video_id}'
-                audio_path = self.media_processor.download_audio_only(video_id, url, AUDIO_CLIPS_PATH)
+                audio_path = self.media_processor.download_audio_only(video_id, url, self.transcript_manager.base_path)
                 if not audio_path:
                     self.logger.error(f"Failed to download audio for {video_id}")
+                    self.root.after(0, lambda: self.tab_manager.update_winner_row_status(video_id, "Error: Audio Download Failed"))
                     return
 
-                self.media_processor.transcribe_audio(audio_path)
+                transcript_result = self.media_processor.transcribe_audio(audio_path)
+                if not transcript_result:
+                    self.logger.error(f"Transcription failed for {video_id}")
+                    self.root.after(0, lambda: self.tab_manager.update_winner_row_status(video_id, "Error: Transcription Failed"))
+                    return
+
+                text_content = transcript_result['text']
+                json_content = {
+                    "library_id": video_id,
+                    "language": transcript_result['language'],
+                    "segments": transcript_result['segments']
+                }
+
+                self.transcript_manager.write_transcript(video_id, text_content, json_content if settings_manager.get('save_json_with_timestamps') else None)
+
+                winner = self.winners_manager.get_winner_by_id(video_id)
+                if winner:
+                    winner.has_transcript = True
+                    winner.transcript_path = str(self.transcript_manager.get_transcript_path(video_id))
+                    winner.transcript_lang = transcript_result['language']
+                    winner.transcript_tokens = self.transcript_manager.get_token_count(text_content)
+                    self.winners_manager.save_winners()
+
                 self.logger.info(f"Successfully transcribed {video_id}")
+                self.root.after(0, lambda: self.tab_manager.update_winner_row_status(video_id, "Done"))
 
                 if callback:
                     self.root.after(0, callback)
             except Exception as e:
                 self.logger.error(f"Async transcription failed for {video_id}: {e}")
+                self.root.after(0, lambda: self.tab_manager.update_winner_row_status(video_id, f"Error: {e}"))
 
         threading.Thread(target=_task, daemon=True).start()
 
-    def _open_prompt_builder(self, video_id: str, title: str):
-        """Opens the transcript dialog for a given video."""
-        transcript_path = AUDIO_CLIPS_PATH / f"{video_id}_transcript.txt"
-        if not transcript_path.exists():
-            messagebox.showwarning("Transcript Not Found", "The transcript for this video is not available yet. Please wait for the download to complete.", parent=self.root)
-            return
+    def _open_prompt_builder(self, video_id: str, title: str, combined_content: Optional[str] = None, metadata: Optional[dict] = None):
+        """Opens the transcript dialog for a given video or a combination of videos."""
+        if combined_content:
+            transcript_content = combined_content
+        else:
+            transcript_path = self.transcript_manager.get_transcript_path(video_id)
+            if not transcript_path.exists():
+                messagebox.showwarning("Transcript Not Found", f"The transcript for '{title}' is not available.", parent=self.root)
+                return
+            transcript_content = self.transcript_manager.read_transcript_text(video_id)
+            if transcript_content is None:
+                messagebox.showerror("Error", "Could not read transcript file.", parent=self.root)
+                return
+
+        if metadata is None:
+            winner = self.winners_manager.get_winner_by_id(video_id)
+            if winner:
+                metadata = {
+                    "Title": winner.display_title,
+                    "Source URL": f"https://www.youtube.com/watch?v={winner.video_id}",
+                    "Date Saved": winner.date_saved,
+                    "Duration": winner.duration,
+                    "VPH": winner.vph,
+                    "Score": f"{winner.viral_score:.3f}",
+                    "Folder": winner.folder,
+                    "Tags": ", ".join(winner.tags) if winner.tags else "None",
+                }
 
         try:
-            with open(transcript_path, 'r', encoding='utf-8') as f:
-                transcript_content = f.read()
-
-            TranscriptDialog(self.root, title, video_id, transcript_content)
+            TranscriptDialog(self.root, title, video_id, transcript_content, metadata)
         except Exception as e:
             self.logger.error(f"Failed to open prompt builder for {video_id}: {e}")
-            messagebox.showerror("Error", f"Could not open transcript file: {e}", parent=self.root)
+            messagebox.showerror("Error", f"Could not open prompt builder: {e}", parent=self.root)
+
+    def _export_transcript(self, video_id: str):
+        """Exports a transcript to a file."""
+        transcript_text = self.transcript_manager.read_transcript_text(video_id)
+        if not transcript_text:
+            messagebox.showerror("Error", "Transcript not found or is empty.")
+            return
+
+        winner = self.winners_manager.get_winner_by_id(video_id)
+        title = winner.display_title if winner else video_id
+
+        file_path = filedialog.asksaveasfilename(
+            initialfile=f"{title}_transcript.txt",
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            title="Save Transcript As..."
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(transcript_text)
+                messagebox.showinfo("Success", f"Transcript saved to\n{file_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save transcript:\n{e}")
+
+    def _load_selected_transcripts(self):
+        """Loads selected transcripts into the prompt builder."""
+        selected_videos = self.tab_manager.get_selected_videos()
+        if not selected_videos:
+            messagebox.showinfo("Load Transcripts", "No videos selected.")
+            return
+
+        videos_with_transcripts = [v for v in selected_videos if v.get('has_transcript')]
+        if not videos_with_transcripts:
+            messagebox.showinfo("Load Transcripts", "None of the selected videos have transcripts.")
+            return
+
+        if len(videos_with_transcripts) < len(selected_videos):
+            if not messagebox.askyesno("Load Transcripts", f"{len(videos_with_transcripts)} of {len(selected_videos)} selected videos have transcripts. Proceed?"):
+                return
+
+        options = self.tab_manager.get_combine_options()
+
+        # Sort videos
+        order_parts = options['order'].split(' ')
+        sort_key = order_parts[2].lower()
+        sort_reverse = order_parts[3] == 'desc'
+
+        if sort_key == 'date':
+            videos_with_transcripts.sort(key=lambda v: v.get('date_saved', ''), reverse=sort_reverse)
+        elif sort_key == 'title':
+            videos_with_transcripts.sort(key=lambda v: v.get('display_title', '').lower(), reverse=sort_reverse)
+        elif sort_key == 'duration':
+            videos_with_transcripts.sort(key=lambda v: _duration_to_seconds(v.get('duration', '0')), reverse=sort_reverse)
+
+        # Combine transcripts
+        combined_text = []
+        total_tokens = 0
+        total_duration = 0
+        total_views = 0
+
+        for video in videos_with_transcripts:
+            video_id = video['video_id']
+            transcript_text = self.transcript_manager.read_transcript_text(video_id)
+            if not transcript_text:
+                continue
+
+            if options['separators']:
+                separator = f"===== {video['display_title']} • {video['date_saved']} • {video['video_id']} =====\n"
+                separator += f"https://www.youtube.com/watch?v={video['video_id']}\n\n"
+                combined_text.append(separator)
+
+            combined_text.append(transcript_text + "\n\n")
+            total_tokens += video.get('transcript_tokens', 0)
+            total_duration += _duration_to_seconds(video.get('duration', '0'))
+            total_views += video.get('views', 0)
+
+        # Create metadata
+        metadata = {
+            "is_multi_select": True,
+            "count": len(videos_with_transcripts),
+            "total_tokens": total_tokens,
+            "total_duration": f"{total_duration // 3600}:{total_duration % 3600 // 60:02d}",
+            "total_views": f"{total_views:,}",
+            "items": [v['display_title'] for v in videos_with_transcripts]
+        }
+
+        final_text = "".join(combined_text)
+
+        # Handle large text
+        MAX_CHARS = 100000  # Example limit
+        if len(final_text) > MAX_CHARS:
+            if messagebox.askyesno("Text too long", f"The combined transcript is over {MAX_CHARS} characters and will be truncated. Proceed?"):
+                final_text = final_text[:MAX_CHARS]
+            else:
+                return
+
+        self._open_prompt_builder("multi-select", "Combined Transcripts", final_text, metadata)

@@ -31,6 +31,12 @@ class WinnerVideo:
     notes: str = ""
     display_title: str = ""
     tags: List[str] = field(default_factory=list)
+    has_transcript: bool = False
+    transcript_path: Optional[str] = None
+    transcript_lang: Optional[str] = None
+    transcript_tokens: Optional[int] = None
+    topics: List[str] = field(default_factory=list)
+
 
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
@@ -60,16 +66,24 @@ class WinnerVideo:
             folder=data.get('folder', 'Default'),
             notes=data.get('notes', ''),
             display_title=display_title,
-            tags=data.get('tags', [])
+            tags=data.get('tags', []),
+            has_transcript=data.get('has_transcript', False),
+            transcript_path=data.get('transcript_path'),
+            transcript_lang=data.get('transcript_lang'),
+            transcript_tokens=data.get('transcript_tokens'),
+            topics=data.get('topics', [])
         )
+
+from .transcript_manager import TranscriptManager
 
 class WinnersManager:
     """Manages winner videos and folders"""
 
-    def __init__(self, winners_file: str = 'winners.json'):
+    def __init__(self, winners_file: str = 'winners.json', transcript_manager: Optional[TranscriptManager] = None):
         self.winners_file = winners_file
         self.winners: List[WinnerVideo] = []
         self.folders: List[str] = ["Default"]
+        self.transcript_manager = transcript_manager or TranscriptManager()
         self.load_winners()
 
     def load_winners(self) -> bool:
@@ -253,9 +267,35 @@ class WinnersManager:
         return self.save_winners()
 
     def search_winners(self, query: str) -> List[WinnerVideo]:
-        """Search winners by title"""
+        """Search winners by title, notes, and transcript"""
         query_lower = query.lower()
-        return [
-            w for w in self.winners
-            if query_lower in w.title.lower() or query_lower in w.notes.lower()
-        ]
+
+        # Handle transcript-only search
+        if query_lower.startswith('transcript:'):
+            search_query = query_lower.replace('transcript:', '').strip()
+            results = []
+            for w in self.winners:
+                if w.has_transcript:
+                    transcript_text = self.transcript_manager.read_transcript_text(w.video_id)
+                    if transcript_text and search_query in transcript_text.lower():
+                        results.append(w)
+            return results
+
+        # General search
+        results = []
+        video_ids_in_results = set()
+        for w in self.winners:
+            # Search title and notes
+            if query_lower in w.title.lower() or query_lower in w.notes.lower():
+                if w.video_id not in video_ids_in_results:
+                    results.append(w)
+                    video_ids_in_results.add(w.video_id)
+
+            # Search transcript
+            if w.has_transcript and w.video_id not in video_ids_in_results:
+                transcript_text = self.transcript_manager.read_transcript_text(w.video_id)
+                if transcript_text and query_lower in transcript_text.lower():
+                    results.append(w)
+                    video_ids_in_results.add(w.video_id)
+
+        return results

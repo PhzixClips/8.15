@@ -55,5 +55,9 @@
     "save_auto_open_prompt_builder": false,
     "save_auto_download_transcript": false,
     "save_remember_last_folder": true,
-    "save_last_used_folder": "Default"
+    "save_last_used_folder": "Default",
+    "transcripts_path": "transcripts",
+    "auto_transcribe_on_save": false,
+    "save_json_with_timestamps": true,
+    "max_concurrent_transcriptions": 2
 }

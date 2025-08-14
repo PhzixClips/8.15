@@ -165,8 +165,9 @@ from data.winners_manager import WinnersManager
 class TabManager:
     """Manages multiple search tabs"""
 
-    def __init__(self, parent: tk.Widget, tree_container: tk.Widget, winners_manager: WinnersManager, on_tab_switch: callable = None):
-        self.parent = parent
+    def __init__(self, main_window: tk.Widget, tree_container: tk.Widget, winners_manager: WinnersManager, on_tab_switch: callable = None):
+        self.main_window = main_window
+        self.parent = main_window.root
         self.tree_container = tree_container
         self.winners_manager = winners_manager
         self.on_tab_switch = on_tab_switch
@@ -265,7 +266,56 @@ class TabManager:
         folder_filter_combo = ttk.Combobox(filter_frame, textvariable=folder_var, state='readonly', width=30)
         folder_filter_combo.pack(side='left', padx=5)
 
+        tk.Label(filter_frame, text="Search:", bg=COLORS.get('bg_primary'), fg=COLORS.get('fg_primary')).pack(side='left', padx=(10, 0))
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(filter_frame, textvariable=search_var, width=30)
+        search_entry.pack(side='left', padx=5)
+
+        def _on_library_search(event):
+            query = search_var.get()
+            self.filter_library_by_folder(query)
+
+        search_entry.bind("<KeyRelease>", _on_library_search)
+
+        # --- Multi-select transcript toolbar ---
+        toolbar_frame = tk.Frame(filter_frame, bg=COLORS.get('bg_primary'))
+        toolbar_frame.pack(side='right', padx=10)
+
+        load_button = ttk.Button(toolbar_frame, text="Load Selected Transcripts", state=tk.DISABLED, command=self.main_window._load_selected_transcripts)
+        load_button.pack(side='left', padx=5)
+
+        combine_order_var = tk.StringVar(value="By Date Saved asc")
+        combine_order_options = ["By Date Saved asc", "By Date Saved desc", "By Title asc", "By Title desc", "By Duration asc", "By Duration desc"]
+        combine_order_combo = ttk.Combobox(toolbar_frame, textvariable=combine_order_var, values=combine_order_options, state='readonly', width=20)
+        combine_order_combo.pack(side='left', padx=5)
+
+        include_separators_var = tk.BooleanVar(value=True)
+        include_separators_check = ttk.Checkbutton(toolbar_frame, text="Separators", variable=include_separators_var)
+        include_separators_check.pack(side='left', padx=5)
+
+        include_timestamps_var = tk.BooleanVar(value=False)
+        include_timestamps_check = ttk.Checkbutton(toolbar_frame, text="Timestamps", variable=include_timestamps_var)
+        include_timestamps_check.pack(side='left', padx=5)
+
+
         tree = self._create_winners_treeview(library_container)
+
+        def on_selection_change(event):
+            selected_items = tree.selection()
+            if not selected_items:
+                load_button.config(state=tk.DISABLED)
+                return
+
+            has_transcripts = False
+            for item_id in selected_items:
+                video = self.get_selected_video_by_item_id(item_id)
+                if video and video.get('has_transcript'):
+                    has_transcripts = True
+                    break
+
+            load_button.config(state=tk.NORMAL if has_transcripts else tk.DISABLED)
+
+        tree.bind("<<TreeviewSelect>>", on_selection_change)
         tree.pack(side='bottom', fill='both', expand=True)
 
         self._bind_winners_tab_events(tab_frame, tab_label, tab_id)
@@ -276,6 +326,9 @@ class TabManager:
             results=[], status_text='idle', tooltip_data={}, is_winners_tab=True,
             container=library_container, folder_filter_combo=folder_filter_combo
         )
+        tab_data.combine_order_var = combine_order_var
+        tab_data.include_separators_var = include_separators_var
+        tab_data.include_timestamps_var = include_timestamps_var
 
         self.tabs[tab_id] = tab_data
         self.winners_tab_id = tab_id
@@ -370,16 +423,63 @@ class TabManager:
             tree.column(col, anchor='center', width=column_widths[col])
 
         tree.column('video_id', width=0, stretch=False)
+        self._create_winners_context_menu(tree)
         return tree
 
+    def _create_winners_context_menu(self, tree: ttk.Treeview):
+        context_menu = tk.Menu(tree, tearoff=0)
+
+        def show_menu(event):
+            item_id = tree.identify_row(event.y)
+            if not item_id:
+                return
+
+            tree.selection_set(item_id)
+            video = self.get_selected_video(self.winners_tab_id)
+            if not video:
+                return
+
+            has_transcript = video.get('has_transcript', False)
+
+            context_menu.delete(0, tk.END)
+            context_menu.add_command(
+                label="Open Transcript in Prompt Builder",
+                state=tk.NORMAL if has_transcript else tk.DISABLED,
+                command=lambda: self.main_window._open_prompt_builder(video['video_id'], video.get('display_title') or video.get('title', ''))
+            )
+            context_menu.add_command(
+                label="Generate/Update Transcript",
+                command=lambda: self.main_window._generate_transcript()
+            )
+            context_menu.add_command(
+                label="Export Transcript...",
+                state=tk.NORMAL if has_transcript else tk.DISABLED,
+                command=lambda: self.main_window._export_transcript(video['video_id'])
+            )
+
+            context_menu.tk_popup(event.x_root, event.y_root)
+
+        tree.bind("<Button-3>", show_menu)
+
+        def on_double_click(event):
+            item_id = tree.identify_row(event.y)
+            if not item_id:
+                return
+
+            video = self.get_selected_video_by_item_id(item_id)
+            if video and video.get('has_transcript'):
+                self.main_window._open_prompt_builder(video['video_id'], video.get('display_title') or video.get('title', ''))
+
+        tree.bind("<Double-1>", on_double_click)
+
     def _create_winners_treeview(self, parent_container: tk.Widget) -> ttk.Treeview:
-        columns = ('Title', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder', 'video_id')
-        display_columns = ('Title', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder')
+        columns = ('Title', 'Status', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder', 'video_id')
+        display_columns = ('Title', 'Status', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder')
 
         tree = ttk.Treeview(parent_container, columns=columns, show='headings', displaycolumns=display_columns)
 
         column_widths = {
-            'Title': 250, 'Score': 70, 'Views': 70, 'Likes': 70,
+            'Title': 250, 'Status': 100, 'Score': 70, 'Views': 70, 'Likes': 70,
             'L/V Ratio': 70, 'VPH': 70, 'Duration': 70, 'Date Saved': 120, 'Folder': 80
         }
 
@@ -619,7 +719,11 @@ class TabManager:
 
         # Use display_title if available, otherwise fallback to original title
         title_to_display = winner_data.get('display_title') or winner_data.get('title', '')
-        title_display = f"{indicator} {title_to_display}"
+        transcript_icon = "📝" if winner_data.get('has_transcript') else ""
+        match_highlight = ""
+        if winner_data.get("match_in"):
+            match_highlight = f" (match: {winner_data.get('match_in')})"
+        title_display = f"{indicator} {transcript_icon} {title_to_display}{match_highlight}".strip()
 
         score_display = winner_data.get('viral_score', 'N/A')
         if score_display != 'N/A':
@@ -627,8 +731,10 @@ class TabManager:
 
         ratio_display = _format_percentage(winner_data.get('ratio'), 1)
 
+        status = "Done" if winner_data.get('has_transcript') else ""
         item_id = tab_data.tree.insert('', 'end', values=(
             title_display,
+            status,
             score_display,
             winner_data.get('views', 0),
             winner_data.get('likes', 0),
@@ -660,6 +766,25 @@ class TabManager:
             if k in [tab_data.tree.set(item, 'video_id') for item in tab_data.tree.get_children()]
         }
 
+    def get_selected_video_by_item_id(self, item_id: str) -> Optional[Dict]:
+        """Gets video data for a specific treeview item ID."""
+        if not self.winners_tab_id or self.winners_tab_id not in self.tabs:
+            return None
+
+        tab_data = self.tabs[self.winners_tab_id]
+        video_id = tab_data.tree.set(item_id, 'video_id')
+
+        for video in tab_data.results:
+            if video.get('video_id') == video_id:
+                return video
+
+        # Fallback for winners tab, which might have a filtered view
+        winner = self.winners_manager.get_winner_by_id(video_id)
+        if winner:
+            return winner.to_dict()
+
+        return None
+
     def get_selected_video(self, tab_id: Optional[str] = None) -> Optional[Dict]:
         if tab_id is None:
             tab_id = self.active_tab_id
@@ -682,6 +807,23 @@ class TabManager:
                 return winner.to_dict()
         return None
 
+    def get_selected_videos(self) -> List[Dict]:
+        """Gets all selected videos from the library tab."""
+        winners_tab = self.get_winners_tab()
+        if not winners_tab:
+            return []
+
+        selected_items = winners_tab.tree.selection()
+        if not selected_items:
+            return []
+
+        videos = []
+        for item_id in selected_items:
+            video = self.get_selected_video_by_item_id(item_id)
+            if video:
+                videos.append(video)
+        return videos
+
     def update_folder_filter(self):
         """Updates the folder filter dropdown with the current folders."""
         winners_tab = self.get_winners_tab()
@@ -693,14 +835,13 @@ class TabManager:
         if not winners_tab.folder_filter_combo.get():
             winners_tab.folder_filter_combo.set("All")
 
-    def filter_library_by_folder(self):
-        """Filters the library treeview based on the dropdown selection."""
+    def filter_library_by_folder(self, query: str = ""):
+        """Filters the library treeview based on the dropdown selection and search query."""
         winners_tab = self.get_winners_tab()
         if not winners_tab or not winners_tab.folder_filter_combo:
             return
 
         selected_folder = winners_tab.folder_filter_combo.get()
-
         self.clear_tab_results(self.winners_tab_id)
 
         if selected_folder == "All":
@@ -708,5 +849,47 @@ class TabManager:
         else:
             winners = self.winners_manager.get_winners_by_folder(selected_folder)
 
+        if query:
+            winners = self.winners_manager.search_winners(query)
+            # Filter by folder again if a folder is selected
+            if selected_folder != "All":
+                winners = [w for w in winners if w.folder == selected_folder]
+
         for winner in winners:
-            self.add_winner_to_tab(winner.to_dict())
+            winner_dict = winner.to_dict()
+            match_in = ""
+            if query:
+                query_lower = query.lower()
+                if query_lower in winner.title.lower():
+                    match_in = "title"
+                elif query_lower in winner.notes.lower():
+                    match_in = "notes"
+                elif winner.has_transcript:
+                    transcript_text = self.winners_manager.transcript_manager.read_transcript_text(winner.video_id)
+                    if transcript_text and query_lower in transcript_text.lower():
+                        match_in = "transcript"
+            winner_dict["match_in"] = match_in
+            self.add_winner_to_tab(winner_dict)
+
+    def get_combine_options(self) -> dict:
+        """Returns the current values of the transcript combination options."""
+        winners_tab = self.get_winners_tab()
+        if not winners_tab:
+            return {}
+
+        return {
+            "order": winners_tab.combine_order_var.get(),
+            "separators": winners_tab.include_separators_var.get(),
+            "timestamps": winners_tab.include_timestamps_var.get(),
+        }
+
+    def update_winner_row_status(self, video_id: str, status_text: str):
+        """Updates the status column for a specific winner row."""
+        winners_tab = self.get_winners_tab()
+        if not winners_tab:
+            return
+
+        for item_id in winners_tab.tree.get_children():
+            if winners_tab.tree.set(item_id, 'video_id') == video_id:
+                winners_tab.tree.set(item_id, 'Status', status_text)
+                break

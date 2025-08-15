@@ -24,8 +24,9 @@ from media.media_processor import MediaProcessor
 from analysis.video_analyzer import VideoAnalyzer
 from gui.tab_manager import TabManager
 from gui.components import (
-    ProgressDialog, CaptionDialog, TranscriptDialog, TimerWidget, show_toast
+    ProgressDialog, CaptionDialog, TimerWidget, show_toast
 )
+from gui.transcript_prompter import TranscriptDialog
 from utils.logging import Logger
 
 from data.transcripts_manager import TranscriptsManager

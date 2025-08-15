@@ -1002,7 +1002,7 @@ class MainWindow:
             progress.close()
             if transcript:
                 clean_title = title.replace('🟢 ','').replace('🔴 ','').strip()
-                TranscriptDialog(self.root, clean_title, video_id, transcript)
+                TranscriptDialog(self.root, clean_title, video_id, transcript, on_save_callback=self._load_winners_to_tab)
                 try:
                     caption, hashtags = VideoAnalyzer.generate_caption_and_hashtags(clean_title, transcript)
                     CaptionDialog(self.root, clean_title, caption, hashtags, str(AUDIO_CLIPS_PATH))
@@ -1098,7 +1098,7 @@ class MainWindow:
         if first_video_data:
             title = first_video_data.display_title or first_video_data.title
 
-        TranscriptDialog(self.root, title, first_video_id, combined_text)
+        TranscriptDialog(self.root, title, first_video_id, combined_text, on_save_callback=self._load_winners_to_tab)
 
 
     def open_transcript_for_selected(self):
@@ -1111,7 +1111,7 @@ class MainWindow:
         transcript_data = tm.load(video_id)
 
         if transcript_data:
-            TranscriptDialog(self.root, transcript_data.get('title', ''), video_id, transcript_data.get('text', ''))
+            TranscriptDialog(self.root, transcript_data.get('title', ''), video_id, transcript_data.get('text', ''), on_save_callback=self._load_winners_to_tab)
         else:
             messagebox.showinfo("Not Found", "No transcript found for this video.", parent=self.root)
 
@@ -1170,7 +1170,7 @@ class MainWindow:
             with open(transcript_path, 'r', encoding='utf-8') as f:
                 transcript_content = f.read()
 
-            TranscriptDialog(self.root, title, video_id, transcript_content)
+            TranscriptDialog(self.root, title, video_id, transcript_content, on_save_callback=self._load_winners_to_tab)
         except Exception as e:
             self.logger.error(f"Failed to open prompt builder for {video_id}: {e}")
             messagebox.showerror("Error", f"Could not open transcript file: {e}", parent=self.root)

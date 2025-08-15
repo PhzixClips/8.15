@@ -198,11 +198,12 @@ class TranscriptDialog:
     Keep constructor signature minimal: (parent, title, video_id, transcript)
     """
 
-    def __init__(self, parent: tk.Tk, video_title: str, video_id: str, transcript: str) -> None:
+    def __init__(self, parent: tk.Tk, video_title: str, video_id: str, transcript: str, on_save_callback: Callable[[], None] = None) -> None:
         self.parent = parent
         self.video_title = video_title
         self.video_id = video_id
         self.transcript = transcript
+        self.on_save_callback = on_save_callback
 
         self.prompts: List[Dict[str, Any]] = _load_prompts_json()
 
@@ -433,6 +434,9 @@ class TranscriptDialog:
                 if winner:
                     setattr(winner, 'has_transcript', True)
                     wm.update_winner(self.video_id, winner.to_dict())
+
+                if self.on_save_callback:
+                    self.on_save_callback()
             else:
                 messagebox.showerror("Error", "Failed to save transcript.", parent=self.win)
 

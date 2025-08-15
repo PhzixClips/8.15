@@ -11,6 +11,7 @@ from pathlib import Path
 import webview
 from typing import Optional
 import threading
+import uuid
 
 # --- App config & theme ---
 from config import WINDOW_GEOMETRY, COLORS, UI_FONT_FAMILY, UI_FONT_SIZES, AUDIO_CLIPS_PATH
@@ -24,7 +25,7 @@ from media.media_processor import MediaProcessor
 from analysis.video_analyzer import VideoAnalyzer
 from gui.tab_manager import TabManager
 from gui.components import (
-    ProgressDialog, CaptionDialog, TimerWidget, show_toast
+    ProgressDialog, CaptionDialog, TimerWidget, show_toast, ManualTranscriptDialog
 )
 from gui.transcript_prompter import TranscriptDialog
 from utils.logging import Logger
@@ -56,6 +57,7 @@ class MainWindow:
         self.search_engine = SearchEngine()
         self.winners_manager = WinnersManager()
         self.media_processor = MediaProcessor()
+        self.transcripts_manager = TranscriptsManager()
 
         # UI components
         self.root = None
@@ -1175,3 +1177,60 @@ class MainWindow:
         except Exception as e:
             self.logger.error(f"Failed to open prompt builder for {video_id}: {e}")
             messagebox.showerror("Error", f"Could not open transcript file: {e}", parent=self.root)
+
+    def _on_winner_select(self, event=None):
+        video = self.tab_manager.get_selected_video()
+        is_manual = video and video.get('video_id', '').startswith('manual_')
+
+        buttons_to_disable = ["Preview", "Download", "Transcribe", "Find Raw"]
+        for button_text in buttons_to_disable:
+            if button_text in self.action_buttons:
+                state = "disabled" if is_manual else "normal"
+                self.action_buttons[button_text].config(state=state)
+
+    def _add_manual_transcript(self):
+        dialog = ManualTranscriptDialog(self.root, self.winners_manager)
+        if dialog.result:
+            data = dialog.result
+            video_id = f"manual_{uuid.uuid4()}"
+
+            # Create a dummy winner object
+            winner_data = {
+                "video_id": video_id,
+                "title": data["title"],
+                "display_title": data["title"],
+                "notes": data["notes"],
+                "tags": data["tags"],
+                "folder": data["folder"],
+                "has_transcript": True,
+                # Add default values for other required fields
+                "viral_score": 0.0,
+                "views": 0,
+                "likes": 0,
+                "ratio": 0.0,
+                "vph": 0.0,
+                "duration": "00:00:00",
+                "age": "",
+                "repost_flag": False,
+                "repost_reason": "",
+            }
+            self.winners_manager.add_winner(winner_data, data["folder"], notes=data["notes"])
+
+            # Create and save the transcript record
+            transcript_record = {
+                "video_id": video_id,
+                "title": data["title"],
+                "source_url": "",
+                "channel_title": "Manual Entry",
+                "saved_at": datetime.now(timezone.utc).isoformat(),
+                "language": "en",
+                "duration": "00:00:00",
+                "tags": data["tags"],
+                "folder": data["folder"],
+                "notes": data["notes"],
+                "text": data["text"],
+            }
+            self.transcripts_manager.save(transcript_record)
+
+            # Refresh the library view
+            self._load_winners_to_tab()

@@ -936,6 +936,88 @@ class TranscriptDialog:
             messagebox.showerror("Save Error", f"Could not save transcript:\n{e}")
 
 
+# ---- Manual Transcript Dialog -----------------------------------------------
+
+class ManualTranscriptDialog:
+    """Dialog for adding a transcript manually."""
+
+    def __init__(self, parent: tk.Tk, winners_manager) -> None:
+        self.parent = parent
+        self.winners_manager = winners_manager
+        self.result = None
+
+        self.window = tk.Toplevel(parent)
+        self.window.title("Add Manual Transcript")
+        self.window.geometry("600x700")
+        install_style(self.window)
+        self.window.transient(parent)
+        self.window.grab_set()
+
+        self._create_widgets()
+        self.window.wait_window()
+
+    def _create_widgets(self):
+        main_frame = ttk.Frame(self.window, padding=15)
+        main_frame.pack(fill="both", expand=True)
+
+        # Title
+        ttk.Label(main_frame, text="Title:", style="Section.TLabel").pack(anchor="w")
+        self.title_var = tk.StringVar()
+        title_entry = ttk.Entry(main_frame, textvariable=self.title_var)
+        title_entry.pack(fill="x", pady=(2, 10))
+        self.title_var.trace_add("write", self._check_inputs)
+
+        # Folder
+        ttk.Label(main_frame, text="Folder:", style="Section.TLabel").pack(anchor="w")
+        self.folder_var = tk.StringVar()
+        folders = self.winners_manager.get_all_folders()
+        folder_combo = ttk.Combobox(main_frame, textvariable=self.folder_var, values=folders, state="readonly")
+        if folders:
+            folder_combo.set(folders[0])
+        folder_combo.pack(fill="x", pady=(2, 10))
+
+        # Tags
+        ttk.Label(main_frame, text="Tags (comma-separated):", style="Section.TLabel").pack(anchor="w")
+        self.tags_var = tk.StringVar()
+        ttk.Entry(main_frame, textvariable=self.tags_var).pack(fill="x", pady=(2, 10))
+
+        # Notes
+        ttk.Label(main_frame, text="Notes:", style="Section.TLabel").pack(anchor="w")
+        self.notes_text = tk.Text(main_frame, height=4)
+        style_text_widget(self.notes_text)
+        self.notes_text.pack(fill="x", pady=(2, 10))
+
+        # Transcript Text
+        ttk.Label(main_frame, text="Transcript Text:", style="Section.TLabel").pack(anchor="w")
+        self.transcript_text = tk.Text(main_frame, height=15)
+        style_text_widget(self.transcript_text)
+        self.transcript_text.pack(fill="both", expand=True, pady=(2, 10))
+        self.transcript_text.bind("<KeyRelease>", self._check_inputs)
+
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill="x", pady=(10, 0))
+
+        self.save_button = ttk.Button(button_frame, text="Save", command=self._on_save, state="disabled")
+        self.save_button.pack(side="right", padx=(5, 0))
+        ttk.Button(button_frame, text="Cancel", command=self.window.destroy).pack(side="right")
+
+    def _check_inputs(self, *args):
+        title_ok = self.title_var.get().strip() != ""
+        text_ok = self.transcript_text.get("1.0", "end-1c").strip() != ""
+        self.save_button.config(state="normal" if title_ok and text_ok else "disabled")
+
+    def _on_save(self):
+        self.result = {
+            "title": self.title_var.get().strip(),
+            "folder": self.folder_var.get(),
+            "tags": [tag.strip() for tag in self.tags_var.get().split(",") if tag.strip()],
+            "notes": self.notes_text.get("1.0", "end-1c").strip(),
+            "text": self.transcript_text.get("1.0", "end-1c").strip(),
+        }
+        self.window.destroy()
+
+
 # ---- Treeview Sort ----------------------------------------------------------
 
 def sort_treeview_column(tree: ttk.Treeview, col: str, reverse: bool = False) -> None:

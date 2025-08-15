@@ -267,6 +267,9 @@ class TabManager:
         folder_filter_combo = ttk.Combobox(filter_frame, textvariable=folder_var, state='readonly', width=30)
         folder_filter_combo.pack(side='left', padx=5)
 
+        add_button = ttk.Button(filter_frame, text="Add Manual Transcript", command=self.main_window._add_manual_transcript)
+        add_button.pack(side='right', padx=5)
+
         tree = self._create_winners_treeview(library_container)
         tree.pack(side='bottom', fill='both', expand=True)
 
@@ -429,6 +432,7 @@ class TabManager:
                 context_menu.post(event.x_root, event.y_root)
 
         tree.bind("<Button-3>", show_context_menu)
+        tree.bind("<<TreeviewSelect>>", self.main_window._on_winner_select)
         return tree
 
     def _bind_tab_events(self, tab_frame: tk.Frame, tab_label: tk.Label,

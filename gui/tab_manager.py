@@ -161,6 +161,7 @@ def _age_to_seconds(txt: str) -> int:
 
 
 from data.winners_manager import WinnersManager
+from data.transcripts_manager import TranscriptsManager
 
 class TabManager:
     """Manages multiple search tabs"""
@@ -370,16 +371,31 @@ class TabManager:
             tree.column(col, anchor='center', width=column_widths[col])
 
         tree.column('video_id', width=0, stretch=False)
+
+        # Context Menu
+        context_menu = tk.Menu(tree, tearoff=0)
+        context_menu.add_command(label="Open Transcript", command=lambda: self.parent.open_transcript_for_selected())
+        context_menu.add_command(label="Delete Transcript", command=lambda: self.parent.delete_transcript_for_selected())
+        context_menu.add_separator()
+        context_menu.add_command(label="Load Transcript into Prompt Builder", command=lambda: self.parent.load_transcript_for_selected())
+
+        def show_context_menu(event):
+            item = tree.identify_row(event.y)
+            if item:
+                tree.selection_set(item)
+                context_menu.post(event.x_root, event.y_root)
+
+        tree.bind("<Button-3>", show_context_menu)
         return tree
 
     def _create_winners_treeview(self, parent_container: tk.Widget) -> ttk.Treeview:
-        columns = ('Title', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder', 'video_id')
-        display_columns = ('Title', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder')
+        columns = ('Transcript', 'Title', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder', 'video_id')
+        display_columns = ('Transcript', 'Title', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder')
 
         tree = ttk.Treeview(parent_container, columns=columns, show='headings', displaycolumns=display_columns)
 
         column_widths = {
-            'Title': 250, 'Score': 70, 'Views': 70, 'Likes': 70,
+            'Transcript': 40, 'Title': 250, 'Score': 70, 'Views': 70, 'Likes': 70,
             'L/V Ratio': 70, 'VPH': 70, 'Duration': 70, 'Date Saved': 120, 'Folder': 80
         }
 
@@ -627,7 +643,12 @@ class TabManager:
 
         ratio_display = _format_percentage(winner_data.get('ratio'), 1)
 
+        tm = TranscriptsManager()
+        has_transcript = tm.exists(winner_data.get('video_id', ''))
+        transcript_icon = "📄" if has_transcript else ""
+
         item_id = tab_data.tree.insert('', 'end', values=(
+            transcript_icon,
             title_display,
             score_display,
             winner_data.get('views', 0),

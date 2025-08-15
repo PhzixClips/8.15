@@ -23,6 +23,18 @@ class SettingsManager:
         Returns a dictionary of default settings. These are based on the original
         config.py file.
         """
+        """
+        Returns a dictionary of default settings. These are based on the original
+        config.py file.
+        """
+        # Determine the default transcripts path
+        appdata_path = os.getenv('APPDATA')
+        if appdata_path:
+            transcripts_path = str(Path(appdata_path) / "ViralSniper" / "Transcripts")
+        else:
+            # Fallback to a local folder if APPDATA is not available
+            transcripts_path = str(Path.cwd() / "transcripts")
+
         return {
             # API & Paths
             "api_keys": [
@@ -36,6 +48,7 @@ class SettingsManager:
             "log_path": str(Path.home() / "OneDrive" / "Desktop" / "upgrade_log.txt"),
             "audio_clips_path": str(Path.home() / "OneDrive" / "Desktop" / "audio_clips"),
             "cliphustle_base_path": str(Path.home() / "Desktop" / "ClipHustle"),
+            "transcripts_path": transcripts_path,
 
             # Appearance
             "theme_name": "onyx",

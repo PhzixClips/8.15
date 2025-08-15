@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Callable
+import datetime
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -18,6 +19,8 @@ from tkinter import ttk, messagebox
 # Re-use existing styling/helpers (these exist in your project)
 try:
     from gui.components import install_style, style_text_widget, show_toast
+    from data.transcripts_manager import TranscriptsManager
+    from data.winners_manager import WinnersManager
 except Exception:
     # Very safe fallbacks so this file never hard-crashes if helpers move.
     def install_style(_root: tk.Misc) -> None:
@@ -217,7 +220,21 @@ class TranscriptDialog:
         # Status / bottom buttons (Copy + Close)
         bottom = ttk.Frame(self.win)
         bottom.pack(side="bottom", fill="x", padx=12, pady=(0, 10))
-        ttk.Button(bottom, text="Copy to Clipboard", command=self._copy_transcript).pack(side="left")
+
+        left_buttons = ttk.Frame(bottom)
+        left_buttons.pack(side="left")
+
+        ttk.Button(left_buttons, text="Copy Transcript", command=self._copy_transcript).pack(side="left", padx=(0, 5))
+
+        self.save_button = ttk.Button(left_buttons, text="Save Transcript", command=self._save_transcript)
+        self.save_button.pack(side="left")
+
+        if not self.video_id:
+            self.save_button.config(state="disabled")
+            # You might want a tooltip here to explain why it's disabled.
+            # from gui.components import Tooltip
+            # Tooltip(self.save_button, "Video ID is missing, cannot save.")
+
         ttk.Button(bottom, text="Close", command=self.win.destroy).pack(side="right")
 
         # bring to front
@@ -379,6 +396,49 @@ class TranscriptDialog:
         self.win.clipboard_clear()
         self.win.clipboard_append(self.transcript)
         show_toast(self.win, "Transcript copied ✓")
+
+    def _save_transcript(self) -> None:
+        """Gathers data and saves the transcript to a file."""
+        if not self.video_id:
+            messagebox.showerror("Error", "Cannot save: Video ID is missing.", parent=self.win)
+            return
+
+        current_text = self.txt.get("1.0", "end-1c").strip()
+        if not current_text:
+            if not messagebox.askyesno("Confirm", "Transcript is empty. Save anyway?", parent=self.win):
+                return
+
+        try:
+            tm = TranscriptsManager()
+            wm = WinnersManager()
+            winner = wm.get_winner_by_id(self.video_id)
+
+            record = {
+                "video_id": self.video_id,
+                "title": self.video_title,
+                "source_url": f"https://youtube.com/watch?v={self.video_id}",
+                "channel_title": winner.channel_title if winner else "",
+                "saved_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "language": "en",  # Placeholder, as we don't know the language yet
+                "duration": winner.duration if winner else "00:00:00",
+                "tags": winner.tags if winner else [],
+                "folder": winner.folder if winner else "Default",
+                "notes": "", # Notes are not available in this window
+                "text": current_text,
+            }
+
+            if tm.save(record):
+                show_toast(self.win, "Transcript saved successfully.")
+                # Optionally update the winner to mark has_transcript = True
+                if winner:
+                    setattr(winner, 'has_transcript', True)
+                    wm.update_winner(self.video_id, winner.to_dict())
+            else:
+                messagebox.showerror("Error", "Failed to save transcript.", parent=self.win)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"An unexpected error occurred:\n{e}", parent=self.win)
+
 
     # public/back-compat
     def show(self) -> None:

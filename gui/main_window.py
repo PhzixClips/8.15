@@ -28,6 +28,7 @@ from gui.components import (
 )
 from utils.logging import Logger
 
+from data.transcripts_manager import TranscriptsManager
 # Winners (fallback if module not present)
 try:
     from data.winners_manager import WinnersManager
@@ -302,7 +303,7 @@ class MainWindow:
     def _create_tab_system(self):
         self.tree_container = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
         self.tree_container.pack(fill='both', expand=True, padx=8, pady=8)
-        self.tab_manager = TabManager(self.root, self.tree_container, self.winners_manager, on_tab_switch=self._on_tab_switch)
+        self.tab_manager = TabManager(self, self.tree_container, self.winners_manager, on_tab_switch=self._on_tab_switch)
 
     def _on_tab_switch(self, tab_data: Optional[dict]):
         """Callback for when the active tab changes."""
@@ -336,6 +337,7 @@ class MainWindow:
             ('Transcribe', '#7C3AED', self._transcribe_video),
             ('Find Raw', '#A16207', self._find_raw_source),
             ('Library', '#FFD700', self._save_to_winners),
+            ('Load Scripts', '#10B981', self._load_selected_transcripts),
             ('Open Folder', '#222', self._open_clip_folder)
         ]
 
@@ -1063,6 +1065,77 @@ class MainWindow:
             self.timer_widget.set_timer(target)
         except Exception:
             messagebox.showerror('Timer Error', 'Invalid time format. Use HH:MM (24-hour format).')
+
+    def _load_selected_transcripts(self):
+        active_tab = self.tab_manager.get_active_tab()
+        if not active_tab or not active_tab.is_winners_tab:
+            messagebox.showinfo("Info", "This action is only available in the Library tab.", parent=self.root)
+            return
+
+        selected_items = active_tab.tree.selection()
+        if not selected_items:
+            messagebox.showinfo("Info", "Please select one or more items from the library.", parent=self.root)
+            return
+
+        video_ids = [active_tab.tree.set(item, 'video_id') for item in selected_items]
+        self.load_transcripts_into_prompt(video_ids)
+
+    def load_transcripts_into_prompt(self, video_ids: list[str]):
+        tm = TranscriptsManager()
+        combined_text = tm.combine_text(video_ids)
+
+        if not combined_text:
+            messagebox.showinfo("Not Found", "No transcripts were found for the selected videos.", parent=self.root)
+            return
+
+        # This is a simplified way to open the prompt builder.
+        # In a real app, you might want to pass the text to an existing instance.
+        # Here, we open a new dialog with the combined text.
+        # We need a representative title and video_id for the dialog constructor.
+        first_video_id = video_ids[0]
+        first_video_data = self.winners_manager.get_winner_by_id(first_video_id)
+        title = f"Combined {len(video_ids)} transcripts"
+        if first_video_data:
+            title = first_video_data.display_title or first_video_data.title
+
+        TranscriptDialog(self.root, title, first_video_id, combined_text)
+
+
+    def open_transcript_for_selected(self):
+        video = self.tab_manager.get_selected_video()
+        if not video:
+            return
+
+        video_id = video.get('video_id')
+        tm = TranscriptsManager()
+        transcript_data = tm.load(video_id)
+
+        if transcript_data:
+            TranscriptDialog(self.root, transcript_data.get('title', ''), video_id, transcript_data.get('text', ''))
+        else:
+            messagebox.showinfo("Not Found", "No transcript found for this video.", parent=self.root)
+
+    def delete_transcript_for_selected(self):
+        video = self.tab_manager.get_selected_video()
+        if not video:
+            return
+
+        video_id = video.get('video_id')
+        video_title = video.get('title', 'this video')
+
+        if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete the transcript for '{video_title}'?", parent=self.root):
+            tm = TranscriptsManager()
+            if tm.delete(video_id):
+                self._load_winners_to_tab() # Refresh the view
+                show_toast(self.root, "Transcript deleted.")
+            else:
+                messagebox.showerror("Error", "Failed to delete transcript.", parent=self.root)
+
+    def load_transcript_for_selected(self):
+        video = self.tab_manager.get_selected_video()
+        if not video:
+            return
+        self.load_transcripts_into_prompt([video.get('video_id')])
 
     def _download_transcript_async(self, video_id: str, callback: Optional[callable] = None):
         """Downloads a transcript in a background thread."""

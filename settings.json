@@ -10,6 +10,7 @@
     "log_path": "/home/jules/OneDrive/Desktop/upgrade_log.txt",
     "audio_clips_path": "/home/jules/OneDrive/Desktop/audio_clips",
     "cliphustle_base_path": "/home/jules/Desktop/ClipHustle",
+    "transcripts_path": "test_transcripts",
     "theme_name": "neon",
     "ui_scale": 1.0,
     "font_family": "Segoe UI",

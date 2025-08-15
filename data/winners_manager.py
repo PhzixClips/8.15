@@ -31,6 +31,7 @@ class WinnerVideo:
     notes: str = ""
     display_title: str = ""
     tags: List[str] = field(default_factory=list)
+    has_transcript: bool = False
 
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
@@ -60,7 +61,8 @@ class WinnerVideo:
             folder=data.get('folder', 'Default'),
             notes=data.get('notes', ''),
             display_title=display_title,
-            tags=data.get('tags', [])
+            tags=data.get('tags', []),
+            has_transcript=data.get('has_transcript', False)
         )
 
 class WinnersManager:
@@ -123,6 +125,10 @@ class WinnersManager:
         if self.get_winner_by_id(video_id):
             return False
 
+        from .transcripts_manager import TranscriptsManager
+        tm = TranscriptsManager()
+        has_transcript = tm.exists(video_id)
+
         winner = WinnerVideo(
             video_id=video_id,
             title=video_data.get('title', ''),
@@ -139,7 +145,8 @@ class WinnersManager:
             date_saved=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             folder=folder,
             notes=notes,
-            tags=video_data.get('tags', [])
+            tags=video_data.get('tags', []),
+            has_transcript=has_transcript
         )
 
         self.winners.append(winner)
@@ -241,6 +248,7 @@ class WinnersManager:
         winner.display_title = new_data.get('display_title', winner.display_title)
         winner.notes = new_data.get('notes', winner.notes)
         winner.tags = new_data.get('tags', winner.tags)
+        winner.has_transcript = new_data.get('has_transcript', winner.has_transcript)
 
         if 'folder' in new_data and new_data['folder'] in self.folders:
             winner.folder = new_data['folder']

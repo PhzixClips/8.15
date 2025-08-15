@@ -17,6 +17,7 @@ class WinnerVideo:
     """Data class for winner video"""
     video_id: str
     title: str
+    channel_title: str
     viral_score: float
     views: int
     likes: int
@@ -48,6 +49,7 @@ class WinnerVideo:
         return cls(
             video_id=data.get('video_id', ''),
             title=data.get('title', ''),
+            channel_title=data.get('channel_title', ''),
             viral_score=data.get('viral_score', 0.0),
             views=data.get('views', 0),
             likes=data.get('likes', 0),
@@ -132,6 +134,7 @@ class WinnersManager:
         winner = WinnerVideo(
             video_id=video_id,
             title=video_data.get('title', ''),
+            channel_title=video_data.get('channel_title', ''),
             display_title=video_data.get('display_title', video_data.get('title', '')),
             viral_score=video_data.get('viral_score', 0.0),
             views=video_data.get('views', 0),

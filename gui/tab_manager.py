@@ -166,7 +166,8 @@ from data.transcripts_manager import TranscriptsManager
 class TabManager:
     """Manages multiple search tabs"""
 
-    def __init__(self, parent: tk.Widget, tree_container: tk.Widget, winners_manager: WinnersManager, on_tab_switch: callable = None):
+    def __init__(self, main_window, parent: tk.Widget, tree_container: tk.Widget, winners_manager: WinnersManager, on_tab_switch: callable = None):
+        self.main_window = main_window
         self.parent = parent
         self.tree_container = tree_container
         self.winners_manager = winners_manager
@@ -371,21 +372,6 @@ class TabManager:
             tree.column(col, anchor='center', width=column_widths[col])
 
         tree.column('video_id', width=0, stretch=False)
-
-        # Context Menu
-        context_menu = tk.Menu(tree, tearoff=0)
-        context_menu.add_command(label="Open Transcript", command=lambda: self.parent.open_transcript_for_selected())
-        context_menu.add_command(label="Delete Transcript", command=lambda: self.parent.delete_transcript_for_selected())
-        context_menu.add_separator()
-        context_menu.add_command(label="Load Transcript into Prompt Builder", command=lambda: self.parent.load_transcript_for_selected())
-
-        def show_context_menu(event):
-            item = tree.identify_row(event.y)
-            if item:
-                tree.selection_set(item)
-                context_menu.post(event.x_root, event.y_root)
-
-        tree.bind("<Button-3>", show_context_menu)
         return tree
 
     def _create_winners_treeview(self, parent_container: tk.Widget) -> ttk.Treeview:
@@ -428,6 +414,21 @@ class TabManager:
             tree.column(col, anchor='center', width=column_widths[col])
 
         tree.column('video_id', width=0, stretch=False)
+
+        # Context Menu
+        context_menu = tk.Menu(tree, tearoff=0)
+        context_menu.add_command(label="Open Transcript", command=self.main_window.open_transcript_for_selected)
+        context_menu.add_command(label="Delete Transcript", command=self.main_window.delete_transcript_for_selected)
+        context_menu.add_separator()
+        context_menu.add_command(label="Load Transcript into Prompt Builder", command=self.main_window.load_transcript_for_selected)
+
+        def show_context_menu(event):
+            item = tree.identify_row(event.y)
+            if item:
+                tree.selection_set(item)
+                context_menu.post(event.x_root, event.y_root)
+
+        tree.bind("<Button-3>", show_context_menu)
         return tree
 
     def _bind_tab_events(self, tab_frame: tk.Frame, tab_label: tk.Label,

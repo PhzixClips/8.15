@@ -24,7 +24,7 @@ from media.media_processor import MediaProcessor
 from analysis.video_analyzer import VideoAnalyzer
 from gui.tab_manager import TabManager
 from gui.components import (
-    ProgressDialog, CaptionDialog, TranscriptDialog, TimerWidget
+    ProgressDialog, CaptionDialog, TranscriptDialog, TimerWidget, show_toast
 )
 from utils.logging import Logger
 
@@ -303,7 +303,7 @@ class MainWindow:
     def _create_tab_system(self):
         self.tree_container = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
         self.tree_container.pack(fill='both', expand=True, padx=8, pady=8)
-        self.tab_manager = TabManager(self, self.tree_container, self.winners_manager, on_tab_switch=self._on_tab_switch)
+        self.tab_manager = TabManager(self, self.root, self.tree_container, self.winners_manager, on_tab_switch=self._on_tab_switch)
 
     def _on_tab_switch(self, tab_data: Optional[dict]):
         """Callback for when the active tab changes."""

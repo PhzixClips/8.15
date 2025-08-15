@@ -270,6 +270,12 @@ class TabManager:
         add_button = ttk.Button(filter_frame, text="Add Manual Transcript", command=self.main_window._add_manual_transcript)
         add_button.pack(side='right', padx=5)
 
+        delete_button = ttk.Button(filter_frame, text="Delete Selected", command=self.main_window._delete_selected_winners)
+        delete_button.pack(side='right', padx=5)
+
+        manage_button = ttk.Button(filter_frame, text="Manage Folders", command=self.main_window._manage_folders)
+        manage_button.pack(side='right', padx=5)
+
         tree = self._create_winners_treeview(library_container)
         tree.pack(side='bottom', fill='both', expand=True)
 

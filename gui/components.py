@@ -1018,6 +1018,112 @@ class ManualTranscriptDialog:
         self.window.destroy()
 
 
+# ---- Folder Manager Dialog --------------------------------------------------
+
+class FolderManagerDialog:
+    """Dialog for managing folders."""
+
+    def __init__(self, parent: tk.Tk, winners_manager) -> None:
+        self.parent = parent
+        self.wm = winners_manager
+
+        self.window = tk.Toplevel(parent)
+        self.window.title("Manage Folders")
+        self.window.geometry("400x500")
+        install_style(self.window)
+        self.window.transient(parent)
+        self.window.grab_set()
+
+        self._create_widgets()
+        self.window.wait_window()
+
+    def _create_widgets(self):
+        main_frame = ttk.Frame(self.window, padding=15)
+        main_frame.pack(fill="both", expand=True)
+
+        # Folder List
+        list_frame = ttk.Frame(main_frame)
+        list_frame.pack(fill="both", expand=True)
+
+        self.listbox = tk.Listbox(list_frame, selectmode="single")
+        self.listbox.pack(side="left", fill="both", expand=True)
+
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
+        scrollbar.pack(side="left", fill="y")
+        self.listbox.config(yscrollcommand=scrollbar.set)
+
+        self.listbox.bind("<<ListboxSelect>>", self._on_select)
+
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill="x", pady=(10, 0))
+
+        self.rename_button = ttk.Button(button_frame, text="Rename", command=self._rename_folder, state="disabled")
+        self.rename_button.pack(side="left")
+
+        self.delete_button = ttk.Button(button_frame, text="Delete", command=self._delete_folder, state="disabled")
+        self.delete_button.pack(side="left", padx=5)
+
+        ttk.Button(button_frame, text="Add New", command=self._add_folder).pack(side="left")
+        ttk.Button(button_frame, text="Close", command=self.window.destroy).pack(side="right")
+
+        self._populate_folders()
+
+    def _populate_folders(self):
+        self.listbox.delete(0, "end")
+        for folder in self.wm.get_all_folders():
+            self.listbox.insert("end", folder)
+        self._on_select()
+
+    def _on_select(self, event=None):
+        is_selected = bool(self.listbox.curselection())
+        is_default = False
+        if is_selected:
+            selected_folder = self.listbox.get(self.listbox.curselection())
+            is_default = selected_folder == "Default"
+
+        self.rename_button.config(state="normal" if is_selected and not is_default else "disabled")
+        self.delete_button.config(state="normal" if is_selected and not is_default else "disabled")
+
+    def _add_folder(self):
+        new_name = simpledialog.askstring("New Folder", "Enter new folder name:", parent=self.window)
+        if new_name and new_name.strip():
+            if self.wm.add_folder(new_name.strip()):
+                self._populate_folders()
+            else:
+                messagebox.showerror("Error", "Folder already exists or is invalid.", parent=self.window)
+
+    def _rename_folder(self):
+        selection = self.listbox.curselection()
+        if not selection: return
+
+        old_name = self.listbox.get(selection[0])
+        new_name = simpledialog.askstring("Rename Folder", f"Enter new name for '{old_name}':", parent=self.window)
+
+        if new_name and new_name.strip():
+            if self.wm.rename_folder(old_name, new_name.strip()):
+                self._populate_folders()
+            else:
+                messagebox.showerror("Error", "New folder name is invalid or already exists.", parent=self.window)
+
+    def _delete_folder(self):
+        selection = self.listbox.curselection()
+        if not selection: return
+
+        folder_name = self.listbox.get(selection[0])
+        confirm = messagebox.askyesno(
+            "Confirm Delete",
+            f"Are you sure you want to delete the folder '{folder_name}'?\n"
+            "All items inside will be moved to the 'Default' folder.",
+            parent=self.window
+        )
+        if confirm:
+            if self.wm.remove_folder(folder_name):
+                self._populate_folders()
+            else:
+                messagebox.showerror("Error", "Could not delete folder.", parent=self.window)
+
+
 # ---- Treeview Sort ----------------------------------------------------------
 
 def sort_treeview_column(tree: ttk.Treeview, col: str, reverse: bool = False) -> None:

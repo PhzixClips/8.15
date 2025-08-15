@@ -25,7 +25,7 @@ from media.media_processor import MediaProcessor
 from analysis.video_analyzer import VideoAnalyzer
 from gui.tab_manager import TabManager
 from gui.components import (
-    ProgressDialog, CaptionDialog, TimerWidget, show_toast, ManualTranscriptDialog
+    ProgressDialog, CaptionDialog, TimerWidget, show_toast, ManualTranscriptDialog, FolderManagerDialog
 )
 from gui.transcript_prompter import TranscriptDialog
 from utils.logging import Logger
@@ -1234,3 +1234,37 @@ class MainWindow:
 
             # Refresh the library view
             self._load_winners_to_tab()
+
+    def _delete_selected_winners(self):
+        active_tab = self.tab_manager.get_active_tab()
+        if not active_tab or not active_tab.is_winners_tab:
+            return
+
+        selected_items = active_tab.tree.selection()
+        if not selected_items:
+            messagebox.showinfo("Delete", "No items selected.", parent=self.root)
+            return
+
+        confirm = messagebox.askyesno(
+            "Confirm Delete",
+            f"Are you sure you want to delete {len(selected_items)} selected item(s)?\n"
+            "This will delete both the library entry and any associated transcript files.",
+            parent=self.root
+        )
+
+        if confirm:
+            deleted_count = 0
+            for item in selected_items:
+                video_id = active_tab.tree.set(item, 'video_id')
+                if video_id:
+                    if self.winners_manager.remove_winner(video_id):
+                        self.transcripts_manager.delete(video_id)
+                        deleted_count += 1
+
+            if deleted_count > 0:
+                show_toast(self.root, f"{deleted_count} item(s) deleted.")
+                self._load_winners_to_tab()
+
+    def _manage_folders(self):
+        FolderManagerDialog(self.root, self.winners_manager)
+        self.tab_manager.update_folder_filter()

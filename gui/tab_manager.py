@@ -166,7 +166,7 @@ from gui.voice_lab import VoiceLabPane
 class TabManager:
     """Manages multiple search tabs"""
 
-    def __init__(self, parent: tk.Widget, tree_container: Optional[tk.Widget], winners_manager: WinnersManager, on_tab_switch: callable = None):
+    def __init__(self, parent: tk.Widget, tree_container: tk.Widget, winners_manager: WinnersManager, on_tab_switch: callable = None):
         self.parent = parent
         self.tree_container = tree_container
         self.winners_manager = winners_manager

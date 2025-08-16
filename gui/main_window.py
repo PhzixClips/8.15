@@ -323,16 +323,9 @@ class MainWindow:
     # Tabs + results table
     # -----------------------------
     def _create_tab_system(self):
-        # The TabManager packs its own tab bar ('tabs_frame') into its parent.
-        # To ensure a stable layout, we create it before the main content area.
-        self.tab_manager = TabManager(self.root, None, self.winners_manager, on_tab_switch=self._on_tab_switch)
-
-        # The tree_container is the main area where tab content (trees, custom frames) is shown.
         self.tree_container = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
         self.tree_container.pack(fill='both', expand=True, padx=8, pady=8)
-
-        # Assign the container to the manager now that it exists.
-        self.tab_manager.tree_container = self.tree_container
+        self.tab_manager = TabManager(self.root, self.tree_container, self.winners_manager, on_tab_switch=self._on_tab_switch)
 
     def _on_tab_switch(self, tab_data: Optional['TabData']):
         """Callback for when the active tab changes."""

@@ -19,14 +19,14 @@ class TabData:
     label: tk.Label
     status_label: Optional[tk.Label]
     close_button: Optional[tk.Button]
-    tree: ttk.Treeview
+    tree: Optional[ttk.Treeview] # Can be None for utility tabs
     search_term: str
     results: List[Dict]
     status_text: str
     tooltip_data: Dict[str, str]
     is_winners_tab: bool = False
-    # Optional fields for library tab
-    container: Optional[tk.Frame] = None
+    is_utility_tab: bool = False # General flag for non-search tabs
+    container: Optional[tk.Frame] = None # For tabs with custom frames
     folder_filter_combo: Optional[ttk.Combobox] = None
 
 
@@ -161,6 +161,7 @@ def _age_to_seconds(txt: str) -> int:
 
 
 from data.winners_manager import WinnersManager
+from gui.voice_lab import VoiceLabPane
 
 class TabManager:
     """Manages multiple search tabs"""
@@ -228,6 +229,68 @@ class TabManager:
     def _add_new_tab_from_button(self):
         self.add_new_tab()
         self._update_canvas_scroll()
+
+    def create_voice_lab_tab(self) -> str:
+        """Creates the special tab for the Voice Lab utility."""
+        tab_id = "voice_lab_tab"
+        if tab_id in self.tabs:
+            self.switch_to_tab(tab_id)
+            return tab_id
+
+        display_name = "Voice Lab"
+
+        tab_bg_color = "#483D8B" # DarkSlateBlue
+        tab_fg_color = "#FFFFFF"
+        active_bg_color = "#6A5ACD" # SlateBlue
+
+        tab_frame = tk.Frame(self.tabs_container, bg=tab_bg_color, relief='solid', bd=1, width=120, height=40)
+        tab_frame.pack_propagate(False)
+
+        tab_label = tk.Label(
+            tab_frame, text=f"🧪 {display_name}", bg=tab_bg_color, fg=tab_fg_color,
+            font=('Segoe UI', 10, 'bold')
+        )
+        tab_label.pack(fill='both', expand=True, padx=5)
+
+        voice_lab_pane = VoiceLabPane(self.tree_container)
+
+        tab_data = TabData(
+            tab_id=tab_id,
+            frame=tab_frame,
+            label=tab_label,
+            container=voice_lab_pane,
+            is_utility_tab=True,
+            tree=None,
+            status_label=None,
+            close_button=None,
+            search_term=display_name,
+            results=[], status_text='idle', tooltip_data={}
+        )
+
+        def on_tab_click(event=None):
+            self.switch_to_tab(tab_id)
+
+        def on_tab_enter(event):
+            if self.active_tab_id != tab_id:
+                tab_frame.config(bg=active_bg_color)
+                tab_label.config(bg=active_bg_color)
+
+        def on_tab_leave(event):
+            if self.active_tab_id != tab_id:
+                tab_frame.config(bg=tab_bg_color)
+                tab_label.config(bg=tab_bg_color)
+
+        tab_label.bind("<Button-1>", on_tab_click)
+        tab_frame.bind("<Button-1>", on_tab_click)
+        tab_label.bind("<Enter>", on_tab_enter)
+        tab_label.bind("<Leave>", on_tab_leave)
+        tab_frame.bind("<Enter>", on_tab_enter)
+        tab_frame.bind("<Leave>", on_tab_leave)
+
+        self.tabs[tab_id] = tab_data
+        tab_frame.pack(side='left', fill='y', padx=2, pady=2)
+
+        return tab_id
 
     def _update_canvas_scroll(self):
         self.tabs_container.update_idletasks()
@@ -478,61 +541,83 @@ class TabManager:
         bind_tooltip(tree, self.tooltip, get_tooltip_text)
 
     def close_tab(self, tab_id: str):
-        if tab_id == self.winners_tab_id:
+        tab_to_close = self.tabs.get(tab_id)
+        if not tab_to_close:
             return
+
+        # Prevent closing special tabs
+        if tab_to_close.is_winners_tab or tab_to_close.is_utility_tab:
+            return
+
         if len(self.tabs) <= 1:
             messagebox.showwarning("Cannot Close", "Cannot close the last tab!")
             return
-        if tab_id in self.tabs:
-            tab_data = self.tabs[tab_id]
-            tab_data.frame.destroy()
+
+        tab_data = self.tabs.pop(tab_id)
+        tab_data.frame.destroy()
+        if tab_data.tree:
             tab_data.tree.destroy()
-            del self.tabs[tab_id]
-            if self.active_tab_id == tab_id:
-                if self.winners_tab_id and self.winners_tab_id in self.tabs:
-                    self.switch_to_tab(self.winners_tab_id)
-                else:
-                    first_tab_id = next(iter(self.tabs.keys()))
-                    self.switch_to_tab(first_tab_id)
-            self._update_canvas_scroll()
+        if tab_data.container:
+            tab_data.container.destroy()
+
+        if self.active_tab_id == tab_id:
+            # Switch to a remaining tab
+            if self.winners_tab_id and self.winners_tab_id in self.tabs:
+                self.switch_to_tab(self.winners_tab_id)
+            else:
+                first_tab_id = next(iter(self.tabs.keys()))
+                self.switch_to_tab(first_tab_id)
+        self._update_canvas_scroll()
 
     def switch_to_tab(self, tab_id: str):
         if tab_id not in self.tabs:
             return
-        for _, tab_data in self.tabs.items():
-            if tab_data.is_winners_tab and tab_data.container:
+
+        # Hide all other tabs' content
+        for t_id, tab_data in self.tabs.items():
+            if tab_data.container:
                 tab_data.container.place_forget()
-            else:
+            elif tab_data.tree:
                 tab_data.tree.place_forget()
 
-            if tab_data.is_winners_tab:
-                tab_data.frame.config(bg='#FFD700', relief='solid')
-                tab_data.label.config(bg='#FFD700', fg='#000000')
-                if tab_data.status_label:
-                    tab_data.status_label.config(bg='#FFD700')
-            else:
-                tab_data.frame.config(bg=COLORS['bg_tertiary'], relief='solid')
-                tab_data.label.config(bg=COLORS['bg_tertiary'], fg=COLORS['fg_secondary'])
-                tab_data.status_label.config(bg=COLORS['bg_tertiary'])
-                if tab_data.close_button:
-                    tab_data.close_button.config(bg=COLORS['bg_tertiary'])
+            # Reset style of non-active tabs
+            if t_id != tab_id:
+                if tab_data.is_winners_tab:
+                    tab_data.frame.config(bg='#FFD700', relief='solid')
+                    tab_data.label.config(bg='#FFD700', fg='#000000')
+                elif tab_data.is_utility_tab:
+                    tab_data.frame.config(bg="#483D8B", relief='solid') # DarkSlateBlue
+                    tab_data.label.config(bg="#483D8B", fg="#FFFFFF")
+                else: # Normal search tab
+                    tab_data.frame.config(bg=COLORS['bg_tertiary'], relief='solid')
+                    tab_data.label.config(bg=COLORS['bg_tertiary'], fg=COLORS['fg_secondary'])
+                    if tab_data.status_label:
+                        tab_data.status_label.config(bg=COLORS['bg_tertiary'])
+                    if tab_data.close_button:
+                        tab_data.close_button.config(bg=COLORS['bg_tertiary'])
 
         active_tab = self.tabs[tab_id]
-        if active_tab.is_winners_tab and active_tab.container:
+
+        # Show active tab's content
+        if active_tab.container:
             active_tab.container.place(in_=self.tree_container, x=0, y=0, relwidth=1, relheight=1)
-            self.update_folder_filter()
-        else:
+            if active_tab.is_winners_tab:
+                self.update_folder_filter()
+        elif active_tab.tree:
             active_tab.tree.place(in_=self.tree_container, x=0, y=0, relwidth=1, relheight=1)
 
+        # Apply active style
         if active_tab.is_winners_tab:
             active_tab.frame.config(bg='#FFB000', relief='raised')
             active_tab.label.config(bg='#FFB000', fg='#000000', font=('Segoe UI', 11, 'bold'))
-            if active_tab.status_label:
-                active_tab.status_label.config(bg='#FFB000')
-        else:
+        elif active_tab.is_utility_tab:
+            active_tab.frame.config(bg='#6A5ACD', relief='raised') # SlateBlue
+            active_tab.label.config(bg='#6A5ACD', fg='#FFFFFF', font=('Segoe UI', 10, 'bold'))
+        else: # Normal search tab
             active_tab.frame.config(bg=COLORS['bg_accent'], relief='raised')
             active_tab.label.config(bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], font=('Segoe UI', 9, 'bold'))
-            active_tab.status_label.config(bg=COLORS['bg_accent'])
+            if active_tab.status_label:
+                active_tab.status_label.config(bg=COLORS['bg_accent'])
             if active_tab.close_button:
                 active_tab.close_button.config(bg=COLORS['bg_accent'])
 

@@ -118,10 +118,33 @@ class MainWindow:
         self._apply_live_settings()
 
         # Initialize Winners tab and load data
-        self._initialize_winners_tab()
+        self._initialize_special_tabs()
 
         # Initial results tab
         self.tab_manager.add_new_tab("Search Results")
+
+    def _initialize_special_tabs(self):
+        """Initializes non-search tabs like Winners and Voice Lab."""
+        try:
+            # Initialize Winners Tab
+            winners_tab_id = self.tab_manager.create_winners_tab()
+            self._load_winners_to_tab()
+            winner_count = self.winners_manager.get_winner_count()
+            self.winners_counter_label.config(text=f'Library • {winner_count} items')
+            self.tab_manager.update_tab_status(
+                winners_tab_id,
+                f"{winner_count} saved",
+                'complete' if winner_count > 0 else 'idle'
+            )
+
+            # Initialize Voice Lab Tab
+            self.tab_manager.create_voice_lab_tab()
+
+            # Switch to the winners tab by default
+            self.tab_manager.switch_to_tab(winners_tab_id)
+
+        except Exception as e:
+            self.logger.error(f"Error initializing special tabs: {e}")
 
         self.logger.info("GUI initialized successfully")
 
@@ -396,20 +419,6 @@ class MainWindow:
             button.config(text=button_text)
 
     # --- The rest of the file remains the same ---
-    def _initialize_winners_tab(self):
-        try:
-            winners_tab_id = self.tab_manager.create_winners_tab()
-            self._load_winners_to_tab()
-            winner_count = self.winners_manager.get_winner_count()
-            self.winners_counter_label.config(text=f'Library • {winner_count} items')
-            self.tab_manager.update_tab_status(
-                winners_tab_id,
-                f"{winner_count} saved",
-                'complete' if winner_count > 0 else 'idle'
-            )
-        except Exception as e:
-            self.logger.error(f"Error initializing winners tab: {e}")
-
     def _load_winners_to_tab(self):
         try:
             winners_tab = self.tab_manager.get_winners_tab()

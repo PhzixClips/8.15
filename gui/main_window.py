@@ -327,21 +327,23 @@ class MainWindow:
         self.tree_container.pack(fill='both', expand=True, padx=8, pady=8)
         self.tab_manager = TabManager(self.root, self.tree_container, self.winners_manager, on_tab_switch=self._on_tab_switch)
 
-    def _on_tab_switch(self, tab_data: Optional[dict]):
+    def _on_tab_switch(self, tab_data: Optional['TabData']):
         """Callback for when the active tab changes."""
-        is_library_tab = tab_data and tab_data.is_winners_tab
+        # A search tab is any tab that is not a special utility tab.
+        is_search_tab = tab_data and not tab_data.is_winners_tab and not tab_data.is_utility_tab
 
-        # Usingwinfo_ismapped() checks if the widget is currently visible
-        if is_library_tab:
-            if self.url_frame.winfo_ismapped():
-                self.url_frame.pack_forget()
-            if self.search_frame.winfo_ismapped():
-                self.search_frame.pack_forget()
-        else:
+        if is_search_tab:
+            # Show search/URL bars for search tabs
             if not self.url_frame.winfo_ismapped():
                 self.url_frame.pack(fill='x', padx=10, pady=(8, 4), before=self.tree_container)
             if not self.search_frame.winfo_ismapped():
                 self.search_frame.pack(fill='x', padx=10, pady=4, before=self.tree_container)
+        else:
+            # Hide search/URL bars for Winners, Voice Lab, and other utility tabs
+            if self.url_frame.winfo_ismapped():
+                self.url_frame.pack_forget()
+            if self.search_frame.winfo_ismapped():
+                self.search_frame.pack_forget()
 
     # -----------------------------
     # Bottom action buttons
